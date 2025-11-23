@@ -14,6 +14,8 @@
 #include <memory>
 #include <vector>
 
+#include "ProcessModule.h"
+
 // Tu dong link thu vien socket cua Windows
 #pragma comment(lib, "ws2_32.lib")
 
