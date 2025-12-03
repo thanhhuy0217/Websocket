@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "ProcessModule.h"
+#include "Webcam.h"
 
 // Tu dong link thu vien socket cua Windows
 #pragma comment(lib, "ws2_32.lib")
@@ -25,23 +26,48 @@ namespace websocket = beast::websocket;
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
+// --- HAM HO TRO MA HOA BASE64 ---
+static const std::string base64_chars =
+"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+"abcdefghijklmnopqrstuvwxyz"
+"0123456789+/";
+
+std::string base64_encode(const std::vector<char>& data) {
+    std::string ret;
+    int i = 0, j = 0;
+    unsigned char char_array_3[3], char_array_4[4];
+    size_t dataLen = data.size();
+    size_t dataPos = 0;
+
+    while (dataLen--) {
+        char_array_3[i++] = data[dataPos++];
+        if (i == 3) {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+            for (i = 0; (i < 4); i++) ret += base64_chars[char_array_4[i]];
+            i = 0;
+        }
+    }
+    if (i) {
+        for (j = i; j < 3; j++) char_array_3[j] = '\0';
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+        char_array_4[3] = char_array_3[2] & 0x3f;
+        for (j = 0; (j < i + 1); j++) ret += base64_chars[char_array_4[j]];
+        while ((i++ < 3)) ret += '=';
+    }
+    return ret;
+}
+
 //------------------------------------------------------------------------------
 // MODULE 2
 //------------------------------------------------------------------------------
 
-void DoShutdown()
-{
-    std::cout << "Executing Shutdown command...\n";
-    // Lenh CMD: tat may (/s) sau 15 giay (/t 15)
-    system("shutdown /s /t 15");
-}
-
-void DoRestart()
-{
-    std::cout << "Executing Restart command...\n";
-    // Lenh CMD: khoi dong lai (/r) sau 15 giay (/t 15)
-    system("shutdown /r /t 15");
-}
+void DoShutdown();
+void DoRestart();
 
 //------------------------------------------------------------------------------
 // LOGIC SERVER
@@ -109,33 +135,56 @@ public:
         // Kiem tra xem tin nhan co phai la dang Text khong
         if (ws_.got_text())
         {
-            // 1. Chuyen du lieu tu Buffer sang String
+            // Chuyen du lieu tu Buffer sang String
             std::string command = beast::buffers_to_string(buffer_.data());
 
-            std::cout << "RECEIVED (Bytes: " << bytes_transferred << "): "
-                << command << "\n";
+            std::cout << "RECEIVED COMMAND: " << command << "\n";
 
-            // 2. Xu ly lenh 
+            // Xu ly lenh 
+            // 1. Xu ly Shutdown
             if (command == "shutdown")
             {
-                // Tra loi Client
                 ws_.text(true);
-                ws_.write(net::buffer("Server: OK, shutting down..."));
-
-                // Goi ham tat may
+                ws_.write(net::buffer("Server: OK, shutting down in 15s..."));
                 DoShutdown();
             }
+            // 2. Xu ly Restart
             else if (command == "restart")
             {
                 ws_.text(true);
-                ws_.write(net::buffer("Server: OK, restarting..."));
-
-                // Goi ham restart
+                ws_.write(net::buffer("Server: OK, restarting in 15s..."));
                 DoRestart();
             }
+            // 3. Xu ly Capture Webcam
+            else if (command == "capture")
+            {
+                // Thong bao truoc de Client khong tuong bi treo
+                ws_.text(true);
+                ws_.write(net::buffer("Server: OK, recording video (10s)... Please wait."));
+
+                // Quay video (Mat 10 giay)
+                std::vector<char> videoData = CaptureWebcam(10);
+
+                if (!videoData.empty()) {
+                    // Ma hoa Base64
+                    std::string encoded = base64_encode(videoData);
+                    
+                    // Gui ve Client voi tien to "file"
+                    // De Client JS hieu va tai xuong
+                    std::string response = "file " + encoded;
+                    
+                    ws_.text(true);
+                    ws_.write(net::buffer(response));
+                    std::cout << "[SERVER] Video sent to Client.\n";
+                }
+                else {
+                    ws_.text(true);
+                    ws_.write(net::buffer("Server: Error recording video."));
+                }
+            }
+            // 4. Lenh khong xac dinh
             else
             {
-                // Lenh la
                 ws_.text(true);
                 ws_.write(net::buffer("Server: Unknown command!"));
             }

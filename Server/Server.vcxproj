@@ -124,7 +124,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Source.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="Restart.cpp" />
+    <ClCompile Include="Shutdown.cpp" />
+    <ClCompile Include="Webcam.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Webcam.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
