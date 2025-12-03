@@ -85,8 +85,11 @@ function handleImageMessage(base64Data) {
  */
 function handleFileMessage(base64Data) {
     const byteString = atob(base64Data);
-    const mimeType = 'application/octet-stream';
-    const filename = 'downloaded_file_' + Date.now() + '.bin';
+    
+    // UPDATED: Changed to mp4 to support webcam video playback immediately
+    const mimeType = 'video/mp4'; 
+    // UPDATED: Changed extension to .mp4 for video file
+    const filename = 'webcam_video_' + Date.now() + '.mp4';
     
     const ab = new ArrayBuffer(byteString.length);
     const ia = new Uint8Array(ab);
@@ -113,7 +116,12 @@ function handleFileMessage(base64Data) {
 
 function doSend(message) {
     writeToScreen(`SENT: ${message}`);
-    websocket.send(message);
+    // ADDED: Safety check to ensure connection is open before sending
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(message);
+    } else {
+        writeToScreen('<span style="color: red;">ERROR: Connection not open.</span>');
+    }
 }
 
 function writeToScreen(message) {
