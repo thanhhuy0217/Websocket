@@ -3,7 +3,7 @@
 #include <vector>
 #include <windows.h>
 
-class ProcessModule {
+class Process {
 private:
     DWORD FindProcessId(const std::string& processName);
     bool IsNumeric(const std::string& str);

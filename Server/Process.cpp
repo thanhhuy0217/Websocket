@@ -1,4 +1,4 @@
-﻿#include "ProcessModule.h"
+﻿#include "Process.h"
 #include <windows.h>
 #include <tlhelp32.h> 
 #include <psapi.h>    // hàm GetProcessMemoryInfo
@@ -11,12 +11,12 @@
 
 
 // Hàm kiểm tra xem chuỗi nhập vào có phải là số k? -> "1234" -> true, "notepad" -> false 
-bool ProcessModule::IsNumeric(const std::string& str) {
+bool Process::IsNumeric(const std::string& str) {
     return !str.empty() && std::all_of(str.begin(), str.end(), ::isdigit);
 }
 
 // Hàm tìm PID dựa trên Tên Process
-DWORD ProcessModule::FindProcessId(const std::string& processName) {
+DWORD Process::FindProcessId(const std::string& processName) {
     HANDLE hProcessSnap;
     PROCESSENTRY32 pe32;
     DWORD pid = 0;
@@ -47,7 +47,7 @@ DWORD ProcessModule::FindProcessId(const std::string& processName) {
 }
 
 // Hàm lấy dung lượng RAM (MB) mà một PID đang sử dụng
-double ProcessModule::GetProcessMemory(DWORD pid) {
+double Process::GetProcessMemory(DWORD pid) {
     PROCESS_MEMORY_COUNTERS pmc;
 
     // Mở process với quyền "QUERY_INFORMATION" (để hỏi thông tin) và "VM_READ" (đọc bộ nhớ ảo)
@@ -69,7 +69,7 @@ double ProcessModule::GetProcessMemory(DWORD pid) {
 
 
 // LIST PROCESS
-std::string ProcessModule::ListProcesses() {
+std::string Process::ListProcesses() {
     std::string result = "PID\tRAM(MB)\tThreads\tName\n"; 
     HANDLE hProcessSnap;
     PROCESSENTRY32 pe32;
@@ -106,7 +106,7 @@ std::string ProcessModule::ListProcesses() {
 }
 
 // START PROCESS (Đã bỏ tham số ẩn/hiện)
-bool ProcessModule::StartProcess(const std::string& pathOrName) {
+bool Process::StartProcess(const std::string& pathOrName) {
     // ShellExecuteA: Tương đương lệnh "Run" của Windows
     // Tham số: "open" (hành động mở), SW_SHOWNORMAL (Hiện cửa sổ bình thường)
     HINSTANCE result = ShellExecuteA(NULL, "open", pathOrName.c_str(), NULL, NULL, SW_SHOWNORMAL);
@@ -116,7 +116,7 @@ bool ProcessModule::StartProcess(const std::string& pathOrName) {
 }
 
 // STOP PROCESS
-std::string ProcessModule::StopProcess(const std::string& nameOrPid) {
+std::string Process::StopProcess(const std::string& nameOrPid) {
     DWORD pid = 0;
 
     // Nếu nhập số -> Convert sang PID. Nếu nhập tên -> Tìm PID từ tên.
