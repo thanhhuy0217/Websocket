@@ -68,8 +68,6 @@ std::vector<char> CaptureWebcam(int durationSeconds)
 
     if (cameraName.empty()) {
         std::cerr << "[ERROR] Could not auto-detect any webcam! (Check ffmpeg.exe)\n";
-        // Go roi: Neu khong tim thay, thu in toan bo log ra de xem tai sao
-        //std::cout << "Debug Log:\n" << result << "\n";
         return fileData;
     }
 
