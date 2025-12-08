@@ -1,44 +1,59 @@
 ﻿#include "Process.h"
 #include <windows.h>
 #include <tlhelp32.h> 
-#include <psapi.h>    // hàm GetProcessMemoryInfo
+#include <psapi.h>    
 #include <iostream>
 #include <algorithm>
 #include <iomanip>    
 #include <sstream>    
+#include <string>
+#include <shlobj.h>
+#include <shlwapi.h> 
 
 #pragma comment(lib, "psapi.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shlwapi.lib")
+using namespace std;
 
-
-// Hàm kiểm tra xem chuỗi nhập vào có phải là số k? -> "1234" -> true, "notepad" -> false 
-bool Process::IsNumeric(const std::string& str) {
-    return !str.empty() && std::all_of(str.begin(), str.end(), ::isdigit);
+string toLowerCase(string str) {
+    string res = str;
+    for (int i = 0; i < res.length(); i++) {
+        res[i] = tolower(res[i]);
+    }
+    return res;
 }
 
-// Hàm tìm PID dựa trên Tên Process
-DWORD Process::FindProcessId(const std::string& processName) {
+// Kiểm tra chuỗi có phải là số (dùng để phân biệt PID và Tên)
+bool Process::IsNumeric(const string& str) {
+    if (str.empty()) return false;
+    for (char c : str) {
+        if (!isdigit(c)) return false;
+    }
+    return true;
+}
+
+// Tìm PID dựa trên Tên Process
+DWORD Process::FindProcessId(const string& processName) {
     HANDLE hProcessSnap;
     PROCESSENTRY32 pe32;
     DWORD pid = 0;
 
-    // Chụp ảnh (Snapshot) toàn bộ danh sách process đang chạy
     hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hProcessSnap == INVALID_HANDLE_VALUE) return 0;
 
     pe32.dwSize = sizeof(PROCESSENTRY32);
 
-    // Lấy process ĐẦU TIÊN trong danh sách
     if (Process32First(hProcessSnap, &pe32)) {
-        do {
-            // Chuyển tên file từ dạng WCHAR (Unicode) sang string thường
-            std::wstring wExeName = pe32.szExeFile;
-            std::string currentName(wExeName.begin(), wExeName.end());
+        string nameToFind = toLowerCase(processName);
 
-            if (currentName == processName) {
+        do {
+            wstring wName = pe32.szExeFile;
+            string currentName(wName.begin(), wName.end());
+
+            if (toLowerCase(currentName) == nameToFind) {
                 pid = pe32.th32ProcessID;
                 break;
             }
-            // Tiếp tục duyệt sang process TIẾP THEO
         } while (Process32Next(hProcessSnap, &pe32));
     }
 
@@ -46,19 +61,15 @@ DWORD Process::FindProcessId(const std::string& processName) {
     return pid;
 }
 
-// Hàm lấy dung lượng RAM (MB) mà một PID đang sử dụng
+// Lấy dung lượng RAM (MB) của process
 double Process::GetProcessMemory(DWORD pid) {
     PROCESS_MEMORY_COUNTERS pmc;
-
-    // Mở process với quyền "QUERY_INFORMATION" (để hỏi thông tin) và "VM_READ" (đọc bộ nhớ ảo)
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
 
-    if (NULL == hProcess) return 0.0; // Không mở được (thường do thiếu quyền Admin)
+    if (hProcess == NULL) return 0.0;
 
-    // Lấy thông tin bộ nhớ
     if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc))) {
         CloseHandle(hProcess);
-        // WorkingSetSize là byte -> chia cho (1024*1024) để ra Megabyte (MB)
         return (double)pmc.WorkingSetSize / (1024 * 1024);
     }
 
@@ -66,81 +77,184 @@ double Process::GetProcessMemory(DWORD pid) {
     return 0.0;
 }
 
+// Liệt kê danh sách process đang chạy
+string Process::ListProcesses() {
+    stringstream ss;
+    ss << "PID\tRAM(MB)\tThreads\tName\n";
 
-
-// LIST PROCESS
-std::string Process::ListProcesses() {
-    std::string result = "PID\tRAM(MB)\tThreads\tName\n"; 
     HANDLE hProcessSnap;
     PROCESSENTRY32 pe32;
 
-    // Chụp snapshot danh sách process
     hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hProcessSnap == INVALID_HANDLE_VALUE) return "Error snapshot";
+    if (hProcessSnap == INVALID_HANDLE_VALUE) return "Loi snapshot";
 
     pe32.dwSize = sizeof(PROCESSENTRY32);
 
     if (!Process32First(hProcessSnap, &pe32)) {
         CloseHandle(hProcessSnap);
-        return "Error process info";
+        return "Loi doc process";
     }
 
     do {
-        std::wstring wExeName = pe32.szExeFile;
-        std::string exeName(wExeName.begin(), wExeName.end());
+        wstring wName = pe32.szExeFile;
+        string exeName(wName.begin(), wName.end());
 
-        // lấy RAM
         double ramUsage = GetProcessMemory(pe32.th32ProcessID);
 
-        std::stringstream ss;
         ss << pe32.th32ProcessID << "\t"
-            << std::fixed << std::setprecision(1) << ramUsage << "\t"
+            << fixed << setprecision(1) << ramUsage << "\t"
             << pe32.cntThreads << "\t"
             << exeName << "\n";
 
-        result += ss.str();
     } while (Process32Next(hProcessSnap, &pe32));
 
     CloseHandle(hProcessSnap);
-    return result;
+    return ss.str();
 }
 
-// START PROCESS (Đã bỏ tham số ẩn/hiện)
-bool Process::StartProcess(const std::string& pathOrName) {
-    // ShellExecuteA: Tương đương lệnh "Run" của Windows
-    // Tham số: "open" (hành động mở), SW_SHOWNORMAL (Hiện cửa sổ bình thường)
-    HINSTANCE result = ShellExecuteA(NULL, "open", pathOrName.c_str(), NULL, NULL, SW_SHOWNORMAL);
+// Hàm đệ quy tìm file trong thư mục
+string FindFileRecursive(string directory, string fileToFind) {
+    string searchPath = directory + "\\*";
+    WIN32_FIND_DATAA findData;
+    HANDLE hFind = FindFirstFileA(searchPath.c_str(), &findData);
 
-    // Kết quả > 32 là thành công
-    return ((intptr_t)result > 32);
+    if (hFind == INVALID_HANDLE_VALUE) return "";
+
+    string resultPath = "";
+
+    do {
+        string currentName = findData.cFileName;
+        if (currentName == "." || currentName == "..") continue;
+
+        string fullPath = directory + "\\" + currentName;
+
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            string found = FindFileRecursive(fullPath, fileToFind);
+            if (!found.empty()) {
+                resultPath = found;
+                break;
+            }
+        }
+        else {
+            string lowerName = toLowerCase(currentName);
+            string lowerFind = toLowerCase(fileToFind);
+
+            // Logic tìm kiếm: Chứa từ khóa VÀ phải là file .exe hoặc .lnk
+            if (lowerName.find(lowerFind) != string::npos) {
+                if (lowerName.find(".lnk") != string::npos || lowerName.find(".exe") != string::npos) {
+                    resultPath = fullPath;
+                    break;
+                }
+            }
+        }
+    } while (FindNextFileA(hFind, &findData));
+
+    FindClose(hFind);
+    return resultPath;
 }
 
-// STOP PROCESS
-std::string Process::StopProcess(const std::string& nameOrPid) {
-    DWORD pid = 0;
+// Tìm App trong Start Menu (Hỗ trợ tìm app không nằm trong PATH)
+string FindAppInStartMenu(string appName) {
+    char path[MAX_PATH];
+    string foundPath = "";
 
-    // Nếu nhập số -> Convert sang PID. Nếu nhập tên -> Tìm PID từ tên.
-    if (IsNumeric(nameOrPid)) pid = std::stoul(nameOrPid);
-    else pid = FindProcessId(nameOrPid);
+    vector<int> foldersToCheck = {
+        CSIDL_COMMON_PROGRAMS, // Start Menu (All Users)
+        CSIDL_PROGRAMS,        // Start Menu (Current User)
+        CSIDL_DESKTOPDIRECTORY // Desktop
+    };
 
-    if (pid == 0) return "Error: Process not found.";
-
-    // Xin quyền hệ điều hành để TERMINATE (Kill) process này
-    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-
-    if (hProcess == NULL) {
-        // Nếu không mở được, lấy mã lỗi để báo cáo
-        DWORD error = GetLastError();
-        if (error == 5) return "Error: Access Denied."; // Lỗi Không đủ quyền Admin
-        return "Error: Cannot open process (" + std::to_string(error) + ").";
+    for (int folderId : foldersToCheck) {
+        if (SHGetFolderPathA(NULL, folderId, NULL, 0, path) == S_OK) {
+            foundPath = FindFileRecursive(string(path), appName);
+            if (!foundPath.empty()) return foundPath;
+        }
     }
 
-    // Thực hiện lệnh Kill (Exit code 1)
-    if (TerminateProcess(hProcess, 1)) {
+    return "";
+}
+
+// --- START PROCESS ---
+bool Process::StartProcess(const string& pathOrName) {
+    string cmdCommand;
+    string input = toLowerCase(pathOrName);
+
+    // Xử lý cắt đuôi .exe (nhập zalo.exe -> tìm zalo)
+    string searchKey = input;
+    if (searchKey.length() > 4 && searchKey.substr(searchKey.length() - 4) == ".exe") {
+        searchKey = searchKey.substr(0, searchKey.length() - 4);
+    }
+
+    // CÁCH 1: Thử chạy trực tiếp (App hệ thống hoặc đường dẫn đầy đủ)
+    HINSTANCE res = ShellExecuteA(NULL, "open", pathOrName.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    if ((intptr_t)res > 32) return true;
+
+    // CÁCH 2: Quét Start Menu để tìm Shortcut (App bên thứ 3)
+    string shortcutPath = FindAppInStartMenu(searchKey);
+
+    if (!shortcutPath.empty()) {
+        cmdCommand = "/c start \"\" \"" + shortcutPath + "\"";
+        res = ShellExecuteA(NULL, "open", "cmd", cmdCommand.c_str(), NULL, SW_HIDE);
+        return ((intptr_t)res > 32);
+    }
+
+    return false;
+}
+
+// --- STOP PROCESS ---
+string Process::StopProcess(const string& nameOrPid) {
+    // TH1: Nhập số PID -> Giết đúng PID đó
+    if (IsNumeric(nameOrPid)) {
+        DWORD pid = stoul(nameOrPid);
+        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if (hProcess == NULL) return "Loi: Khong mo duoc PID nay.";
+
+        if (TerminateProcess(hProcess, 1)) {
+            CloseHandle(hProcess);
+            return "Thanh cong: Da diet PID " + nameOrPid;
+        }
         CloseHandle(hProcess);
-        return "Success: Process killed.";
+        return "Loi: Khong diet duoc.";
     }
 
-    CloseHandle(hProcess);
-    return "Error: Unknown failure.";
+    // TH2: Nhập Tên Process -> Quét và giết tất cả process trùng tên
+    else {
+        HANDLE hProcessSnap;
+        PROCESSENTRY32 pe32;
+        int countKilled = 0;
+
+        hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (hProcessSnap == INVALID_HANDLE_VALUE) return "Loi snapshot";
+
+        pe32.dwSize = sizeof(PROCESSENTRY32);
+
+        if (Process32First(hProcessSnap, &pe32)) {
+            string nameToKill = toLowerCase(nameOrPid);
+
+            do {
+                wstring wName = pe32.szExeFile;
+                string currentName(wName.begin(), wName.end());
+
+                if (toLowerCase(currentName) == nameToKill) {
+                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
+                    if (hProcess != NULL) {
+                        if (TerminateProcess(hProcess, 1)) {
+                            countKilled++;
+                        }
+                        CloseHandle(hProcess);
+                    }
+                }
+
+            } while (Process32Next(hProcessSnap, &pe32));
+        }
+
+        CloseHandle(hProcessSnap);
+
+        if (countKilled > 0) {
+            return "Thanh cong: Da diet " + to_string(countKilled) + " process ten " + nameOrPid;
+        }
+        else {
+            return "Loi: Khong tim thay process nao ten " + nameOrPid;
+        }
+    }
 }
