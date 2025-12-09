@@ -124,16 +124,20 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Application.cpp" />
     <ClCompile Include="Keylogger.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Process.cpp" />
     <ClCompile Include="Restart.cpp" />
+    <ClCompile Include="ScreenShot.cpp" />
     <ClCompile Include="Shutdown.cpp" />
     <ClCompile Include="Webcam.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Application.h" />
     <ClInclude Include="Keylogger.h" />
     <ClInclude Include="Process.h" />
+    <ClInclude Include="ScreenShot.h" />
     <ClInclude Include="Webcam.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
