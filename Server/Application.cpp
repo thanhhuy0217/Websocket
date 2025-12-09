@@ -1,4 +1,4 @@
-﻿#include"ListApplication.h"
+#include"Application.h"
 
 //================= Helper string =================
 
@@ -205,156 +205,200 @@ void Application::printListApplication() {
     }
 }
 
+//===================================================START APPLICATION==================================
+bool Application::StartProcessShell(const std::string& pathOrCommand) {
+    if (pathOrCommand.empty()) return false;
+
+    HINSTANCE hInst = ShellExecuteA(
+        nullptr,
+        "open",
+        pathOrCommand.c_str(),
+        nullptr,
+        nullptr,
+        SW_SHOWNORMAL
+    );
+
+    INT_PTR code = reinterpret_cast<INT_PTR>(hInst);
+    return code > 32;
+}
+
+bool Application::StartApplicationByName(const std::string& displayName) {
+    std::string target = ToLower(displayName);
+
+    for (const auto& app : g_applications) {
+        if (ToLower(app.name) == target) {
+            if (!app.command.empty()) {
+                return StartProcessShell(app.command);
+            }
+            else {
+                return StartProcessShell(app.name);
+            }
+        }
+    }
+
+    return false;
+}
+
+bool Application::StartApplicationFromInput(const std::string& inputRaw) {
+    std::string input = Trim(inputRaw);
+    if (input.empty()) return false;
+
+    // 1) Thử coi input là DisplayName của app đã cài (ListApplication)
+    std::string target = ToLowerStr(input);
+
+    for (const auto& app : g_applications) {
+        if (ToLowerStr(Trim(app.name)) == target) {
+            // tìm thấy app theo DisplayName -> chạy theo exePath (command)
+            if (!app.command.empty()) {
+                return StartProcessShell(app.command);
+            }
+        }
+    }
+
+    // 2) Nếu không phải DisplayName, coi như user nhập exePath / tên lệnh
+    //    giao trực tiếp cho ShellExecute (notepad, notepad.exe, C:\...\zalo.exe, ...).
+    return StartProcessShell(input);
+}
 
 
+//======================================STOP APPLICATION=======================================================
 
+std::string Application::ToLowerStr(std::string s) {
+    for (char& c : s) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return s;
+}
 
+std::string Application::NormalizePath(const std::string& path) {
+    std::string s = Trim(path);
+    std::replace(s.begin(), s.end(), '/', '\\');
+    return ToLowerStr(s);
+}
 
+// Lấy full path exe của process PID
+bool Application::GetProcessImagePath(DWORD pid, std::string& outPath) {
+    outPath.clear();
 
+    HANDLE hProcess = OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION,
+        FALSE,
+        pid
+    );
+    if (!hProcess) {
+        return false;
+    }
 
+    char buffer[MAX_PATH];
+    DWORD size = MAX_PATH;
+    if (!QueryFullProcessImageNameA(hProcess, 0, buffer, &size)) {
+        CloseHandle(hProcess);
+        return false;
+    }
 
+    CloseHandle(hProcess);
+    outPath.assign(buffer, size);
+    return true;
+}
 
+// Kiểm tra còn process nào chạy bằng exePath này không
+bool Application::HasProcessWithExe(const std::string& exePath) {
+    std::string target = NormalizePath(exePath);
 
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return false;
 
+    PROCESSENTRY32 pe;
+    pe.dwSize = sizeof(pe);
 
+    if (!Process32First(hSnap, &pe)) {
+        CloseHandle(hSnap);
+        return false;
+    }
 
+    do {
+        DWORD pid = pe.th32ProcessID;
+        if (pid == 0) continue; // Idle
 
-//#include"Application.h"
-//
-//
-//bool Application::isToolWindow(HWND hWnd) {
-//	LONG_PTR styleEx = GetWindowLongPtr(hWnd, GWL_EXSTYLE); //Lấy ra các cờ mở rộng của từng HWND để xem là nó có phải toolWindow hông?
-//	if (styleEx & WS_EX_TOOLWINDOW) return true;
-//	else return false;
-//}
-//
-//bool Application::isAltTabWindow(HWND hWnd) {
-//	if (GetWindow(hWnd, GW_OWNER) != NULL) {
-//		return false;
-//	}
-//
-//	if (isToolWindow(hWnd)) return false;
-//
-//	if (!IsWindowVisible(hWnd)) return false;
-//
-//	char title[256];
-//	int len = GetWindowTextA(hWnd, title, sizeof(title));
-//	if (len == 0) return false;
-//
-//	return true;
-//}
-//std::string Application::ConvertWideToUtf8(const wchar_t* wstr) {
-//	if (!wstr) return std::string();
-//
-//	// Dùng -1 để Windows tự tính độ dài dựa trên '\0'
-//	int sizeNeeded = WideCharToMultiByte(
-//		CP_UTF8,
-//		0,
-//		wstr,
-//		-1,         // null-terminated
-//		nullptr,
-//		0,
-//		nullptr,
-//		nullptr
-//	);
-//
-//	if (sizeNeeded <= 0) {
-//		return std::string();
-//	}
-//
-//	std::string result(sizeNeeded - 1, 0); // bỏ ký tự '\0' cuối
-//	WideCharToMultiByte(
-//		CP_UTF8,
-//		0,
-//		wstr,
-//		-1,
-//		&result[0],
-//		sizeNeeded,
-//		nullptr,
-//		nullptr
-//	);
-//
-//	return result;
-//}
-//
-//
-//std::string Application::QueryProcessImagePath(DWORD pid) {
-//	HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-//	if (hProcess == NULL) return"";
-//	wchar_t buffer[MAX_PATH];
-//	unsigned long size = MAX_PATH;
-//	bool ok = QueryFullProcessImageName(hProcess, 0, buffer, &size);
-//
-//	CloseHandle(hProcess);
-//
-//	if (!ok) {
-//		return "";
-//	}
-//	else return ConvertWideToUtf8(buffer);
-//}
-//
-//std::string Application::ExtractFileName(const std::string& exePath) {
-//	// Tìm vị trí của '\' hoặc '/' cuối cùng (cho chắc cross-platform)
-//	std::size_t pos = exePath.find_last_of("\\");
-//
-//	if (pos == std::string::npos) {
-//		// Không có '\' hoặc '/', trả luôn cả chuỗi
-//		return exePath;
-//	}
-//
-//	return exePath.substr(pos + 1);
-//}
-//
-//BOOL CALLBACK Application::EnumWindowCallback(HWND hWnd, LPARAM lParam)
-//{
-//	auto* self = reinterpret_cast<Application*>(lParam);
-//
-//	// Nếu không phải app kiểu Alt+Tab thì bỏ qua, nhưng vẫn tiếp tục duyệt
-//	if (!self->isAltTabWindow(hWnd))
-//		return TRUE;
-//
-//	DWORD pid = 0;
-//	GetWindowThreadProcessId(hWnd, &pid);
-//
-//	// Tìm xem PID này đã có AppInfor chưa
-//	auto it = self->m_pidToApp.find(pid);
-//
-//	if (it == self->m_pidToApp.end()) {
-//		// Lần đầu thấy PID này → tạo AppInfor mới
-//
-//		std::string exePath = self->QueryProcessImagePath(pid);
-//		std::string exeName = self->ExtractFileName(exePath);
-//
-//		char titleBuf[256] = { 0 };
-//		int len = GetWindowTextA(hWnd, titleBuf, sizeof(titleBuf));
-//		std::string mainTitle;
-//		if (len > 0)
-//			mainTitle.assign(titleBuf, len);
-//
-//		// Tạo object ngay trong list (list quản lý lifetime)
-//		self->m_ListApp.emplace_back(pid, exePath, exeName, mainTitle, hWnd);
-//
-//		// Lấy pointer tới phần tử vừa thêm
-//		AppInfor* app = &self->m_ListApp.back();
-//		self->m_pidToApp[pid] = app;
-//	}
-//	else {
-//		// Đã có AppInfor cho PID này → chỉ thêm hWnd vào list window
-//		AppInfor* app = it->second;
-//		app->_windows.push_back(hWnd);
-//	}
-//
-//	return TRUE; // tiếp tục duyệt các cửa sổ khác
-//}
-//
-//
-//std::list<AppInfor> Application::ListApplication() {
-//	m_ListApp.clear();
-//	m_pidToApp.clear();
-//
-//	//EnumWindows(EnumWindowCallback, 0);
-//	EnumWindows(&Application::EnumWindowCallback,
-//		reinterpret_cast<LPARAM>(this));
-//
-//	return m_ListApp;
-//}
+        std::string procPath;
+        if (!GetProcessImagePath(pid, procPath)) continue;
+
+        if (NormalizePath(procPath) == target) {
+            CloseHandle(hSnap);
+            return true;
+        }
+
+    } while (Process32Next(hSnap, &pe));
+
+    CloseHandle(hSnap);
+    return false;
+}
+
+// Kill tất cả process chạy bằng exePath
+int Application::KillProcessesByExe(const std::string& exePath) {
+    std::string target = NormalizePath(exePath);
+    int killedCount = 0;
+
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return 0;
+
+    PROCESSENTRY32 pe;
+    pe.dwSize = sizeof(pe);
+
+    if (!Process32First(hSnap, &pe)) {
+        CloseHandle(hSnap);
+        return 0;
+    }
+
+    do {
+        DWORD pid = pe.th32ProcessID;
+        if (pid == 0) continue;
+
+        std::string procPath;
+        if (!GetProcessImagePath(pid, procPath)) continue;
+
+        if (NormalizePath(procPath) == target) {
+            HANDLE hProc = OpenProcess(
+                PROCESS_TERMINATE,
+                FALSE,
+                pid
+            );
+            if (hProc) {
+                if (TerminateProcess(hProc, 0)) {
+                    ++killedCount;
+                }
+                CloseHandle(hProc);
+            }
+        }
+
+    } while (Process32Next(hSnap, &pe));
+
+    CloseHandle(hSnap);
+    return killedCount;
+}
+
+bool Application::StopApplicationByName(const std::string& displayName) {
+    std::string targetName = ToLowerStr(Trim(displayName));
+    if (targetName.empty()) return false;
+
+    const ApplicationInfo* found = nullptr;
+
+    for (const auto& app : g_applications) {
+        if (ToLowerStr(Trim(app.name)) == targetName) {
+            found = &app;
+            break;
+        }
+    }
+
+    if (!found || found->command.empty()) {
+        return false;
+    }
+
+    if (!HasProcessWithExe(found->command)) {
+        return true; // không có process nào => coi như đã stop rồi
+    }
+
+    KillProcessesByExe(found->command);
+    return !HasProcessWithExe(found->command);
+}
+
