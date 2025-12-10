@@ -1,50 +1,57 @@
 #pragma once
+#define NOMINMAX
 #include <Windows.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 
 #include <string>
 #include <vector>
-#include <map>
 #include <iostream>
-#include <cctype>   // std::tolower
 #include <algorithm>
-#include <tlhelp32.h>   // CreateToolhelp32Snapshot, PROCESSENTRY32,...
+#include <cctype>
 
+#include "Process.h"   // để dùng m_process.StartProcess / StopProcess
+
+// struct mô tả 1 application (tương ứng với { name, exePath } bên Process.cpp)
 struct ApplicationInfo {
-    std::string id;              // ID nội bộ (prefix + subkey registry)
-    std::string name;            // DisplayName: "Google Chrome", "Zalo", ...
-    std::string command;         // Lệnh/đường dẫn để chạy (exe path)
-    std::string uninstallString; // (optional) command gỡ cài đặt
+    std::string name; // DisplayName trong Registry
+    std::string path; // đường dẫn file .exe
 };
-
-
 
 class Application {
 private:
+    // danh sách ứng dụng đã cài (load từ Registry)
     std::vector<ApplicationInfo> g_applications;
-    std::map<std::string, size_t> g_appIndexById;
-private:
+
+    // dùng Process để Start / Stop
+    Process m_process;
+
+    // ===== helper nội bộ =====
     std::string Trim(const std::string& s);
     std::string ToLower(std::string s);
     bool ExtractStringValueA(HKEY hKey, const char* valueName, std::string& out);
     std::string ExtractExeFromDisplayIcon(const std::string& displayIcon);
-    void EnumerateUninstallRoot(HKEY hRoot, const char* subkeyRoot, const char* rootPrefix);
-    bool HasProcessWithExe(const std::string& exePath);
-    bool GetProcessImagePath(DWORD pid, std::string& outPath);
+    bool IsValidExePath(const std::string& path);
 
+    void EnumerateUninstallRoot(HKEY hRoot,
+        const char* subkeyRoot,
+        const char* rootPrefix);
 
     std::string NormalizePath(const std::string& path);
-    std::string ToLowerStr(std::string s);
-
-    bool StartApplicationByName(const std::string& displayName);
-    bool StartProcessShell(const std::string& pathOrCommand);
-
-    int KillProcessesByExe(const std::string& exePath);
+    bool GetProcessImagePath(DWORD pid, std::string& outPath);
+    bool HasProcessWithExe(const std::string& exePath);
 
 public:
-    std::vector<ApplicationInfo> LoadInstalledApplications();
-    bool StopApplicationByName(const std::string& displayName);
-    bool StartApplicationFromInput(const std::string& inputRaw);
-    void printListApplication();
+    // đọc registry, build lại g_applications
+    void LoadInstalledApplications();
 
+    // trả về vector<pair<ApplicationInfo, bool>>
+    // bool = true nếu app đó đang có process chạy
+    std::vector<std::pair<ApplicationInfo, bool>> ListApplicationsWithStatus();
+
+    // start application (zoom, zoom.exe, notepad, full path, ...)
+    bool StartApplication(const std::string& pathOrName);
+
+    // stop application (tên exe hoặc PID)
+    bool StopApplication(const std::string& nameOrPid);
 };

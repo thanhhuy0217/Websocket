@@ -1,7 +1,8 @@
-#include"Application.h"
+#include "Application.h"
 
-//================= Helper string =================
+//----------------- helper xử lý chuỗi -----------------
 
+// cắt khoảng trắng ở đầu và cuối chuỗi
 std::string Application::Trim(const std::string& s) {
     size_t start = 0;
     while (start < s.size() && std::isspace(static_cast<unsigned char>(s[start]))) {
@@ -14,6 +15,7 @@ std::string Application::Trim(const std::string& s) {
     return s.substr(start, end - start);
 }
 
+// chuyển toàn bộ chuỗi thành chữ thường (lowercase)
 std::string Application::ToLower(std::string s) {
     for (char& c : s) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -21,11 +23,14 @@ std::string Application::ToLower(std::string s) {
     return s;
 }
 
-// Extract chuỗi REG_SZ/REG_EXPAND_SZ từ 1 value trong key
+// đọc một value dạng chuỗi (REG_SZ / REG_EXPAND_SZ) từ registry
 bool Application::ExtractStringValueA(HKEY hKey, const char* valueName, std::string& out) {
+    out.clear();
+
     DWORD type = 0;
     DWORD size = 0;
     LONG res = RegQueryValueExA(hKey, valueName, nullptr, &type, nullptr, &size);
+    // nếu không phải kiểu chuỗi thì bỏ qua
     if (res != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ)) {
         return false;
     }
@@ -36,7 +41,8 @@ bool Application::ExtractStringValueA(HKEY hKey, const char* valueName, std::str
     }
 
     std::vector<char> buffer(size + 1);
-    res = RegQueryValueExA(hKey, valueName, nullptr, nullptr, reinterpret_cast<LPBYTE>(buffer.data()), &size);
+    res = RegQueryValueExA(hKey, valueName, nullptr, nullptr,
+        reinterpret_cast<LPBYTE>(buffer.data()), &size);
     if (res != ERROR_SUCCESS) {
         return false;
     }
@@ -46,14 +52,15 @@ bool Application::ExtractStringValueA(HKEY hKey, const char* valueName, std::str
     return true;
 }
 
-// Từ DisplayIcon → lấy đường dẫn exe
-// VD: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe,0"
-//     "\"C:\\Program Files\\Zalo\\Zalo.exe\",0"
+// từ DisplayIcon → tách ra đường dẫn exe
+// ví dụ:
+//   "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\",0"
+//   "C:\\Program Files\\Zalo\\Zalo.exe,0"
 std::string Application::ExtractExeFromDisplayIcon(const std::string& displayIcon) {
     std::string s = Trim(displayIcon);
     if (s.empty()) return "";
 
-    // Nếu dạng "..." thì lấy phần trong ""
+    // nếu bắt đầu bằng dấu " thì lấy phần nằm giữa 2 dấu "
     if (s[0] == '\"') {
         size_t secondQuote = s.find('\"', 1);
         if (secondQuote != std::string::npos && secondQuote > 1) {
@@ -61,7 +68,7 @@ std::string Application::ExtractExeFromDisplayIcon(const std::string& displayIco
         }
     }
 
-    // Nếu có dấu phẩy: "path,0" -> lấy trước dấu phẩy
+    // nếu có dấu phẩy: "path,0" → lấy phần trước dấu phẩy
     size_t commaPos = s.find(',');
     if (commaPos != std::string::npos) {
         s = s.substr(0, commaPos);
@@ -70,13 +77,35 @@ std::string Application::ExtractExeFromDisplayIcon(const std::string& displayIco
     return Trim(s);
 }
 
-//================= Liệt kê Uninstall keys =================
+// kiểm tra path có phải file .exe thật sự tồn tại, không phải thư mục
+bool Application::IsValidExePath(const std::string& path) {
+    if (path.empty()) return false;
 
-void Application::EnumerateUninstallRoot(HKEY hRoot, const char* subkeyRoot, const char* rootPrefix) {
+    std::string lower = ToLower(path);
+    // kiểm tra đuôi .exe
+    if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".exe") != 0) {
+        return false;
+    }
+
+    // kiểm tra tồn tại và không phải folder
+    DWORD attr = GetFileAttributesA(path.c_str());
+    if (attr == INVALID_FILE_ATTRIBUTES) return false;
+    if (attr & FILE_ATTRIBUTE_DIRECTORY) return false;
+
+    return true;
+}
+
+//----------------- duyệt registry Uninstall -----------------
+
+// hàm này duyệt một nhánh Uninstall (ví dụ HKLM\...\Uninstall) để lấy danh sách app
+void Application::EnumerateUninstallRoot(HKEY hRoot,
+    const char* subkeyRoot,
+    const char* /*rootPrefix*/)
+{
     HKEY hUninstall = nullptr;
     LONG res = RegOpenKeyExA(hRoot, subkeyRoot, 0, KEY_READ, &hUninstall);
     if (res != ERROR_SUCCESS) {
-        return;
+        return; // không mở được nhánh → bỏ qua
     }
 
     char subkeyName[256];
@@ -97,11 +126,11 @@ void Application::EnumerateUninstallRoot(HKEY hRoot, const char* subkeyRoot, con
         );
 
         if (res == ERROR_NO_MORE_ITEMS) {
-            break;
+            break; // duyệt hết
         }
         if (res != ERROR_SUCCESS) {
             ++index;
-            continue;
+            continue; // lỗi lặt vặt, bỏ qua key này
         }
 
         HKEY hApp = nullptr;
@@ -111,7 +140,7 @@ void Application::EnumerateUninstallRoot(HKEY hRoot, const char* subkeyRoot, con
             continue;
         }
 
-        // 1. Phải có DisplayName
+        // 1. lấy DisplayName, nếu không có thì không coi là app
         std::string displayName;
         if (!ExtractStringValueA(hApp, "DisplayName", displayName) || displayName.empty()) {
             RegCloseKey(hApp);
@@ -119,42 +148,28 @@ void Application::EnumerateUninstallRoot(HKEY hRoot, const char* subkeyRoot, con
             continue;
         }
 
-        // 2. Lấy DisplayIcon → suy ra command (exe path)
+        // 2. lấy DisplayIcon để suy ra đường dẫn exe
         std::string displayIcon;
         ExtractStringValueA(hApp, "DisplayIcon", displayIcon);
 
-        std::string command;
+        std::string exePath;
         if (!displayIcon.empty()) {
-            command = ExtractExeFromDisplayIcon(displayIcon);
+            exePath = ExtractExeFromDisplayIcon(displayIcon);
         }
 
-        // 3. Nếu command trống → KHÔNG coi là Application (theo định nghĩa mới)
-        if (command.empty()) {
+        // 3. chỉ nhận những app có exePath hợp lệ (tồn tại, là file .exe)
+        if (!IsValidExePath(exePath)) {
             RegCloseKey(hApp);
             ++index;
             continue;
         }
 
-        // 4. Kiểm tra command có tồn tại & không phải folder
-        DWORD attr = GetFileAttributesA(command.c_str());
-        if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) {
-            RegCloseKey(hApp);
-            ++index;
-            continue;
-        }
+        // 5. ghép thành ApplicationInfo (name + path) và cho vào vector
+        ApplicationInfo info;
+        info.name = displayName;
+        info.path = exePath;
 
-        // 5. (Optional) lấy thêm UninstallString
-        std::string uninstallStr;
-        ExtractStringValueA(hApp, "UninstallString", uninstallStr);
-
-        ApplicationInfo app;
-        app.id = std::string(rootPrefix) + "\\" + subkeyName;
-        app.name = displayName;
-        app.command = command;
-        app.uninstallString = uninstallStr;
-
-        g_appIndexById[app.id] = g_applications.size();
-        g_applications.push_back(app);
+        g_applications.push_back(info);
 
         RegCloseKey(hApp);
         ++index;
@@ -163,123 +178,20 @@ void Application::EnumerateUninstallRoot(HKEY hRoot, const char* subkeyRoot, con
     RegCloseKey(hUninstall);
 }
 
-// Load tất cả application đã cài từ registry
-std::vector<ApplicationInfo> Application::LoadInstalledApplications() {
-    g_applications.clear();
-    g_appIndexById.clear();
+//----------------- kiểm tra process theo exePath -----------------
 
-    // App 64-bit + app chung
-    EnumerateUninstallRoot(
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-        "HKLM"
-    );
-
-    // App 32-bit trên OS 64-bit
-    EnumerateUninstallRoot(
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-        "HKLM32"
-    );
-
-    // App cài cho user hiện tại
-    EnumerateUninstallRoot(
-        HKEY_CURRENT_USER,
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-        "HKCU"
-    );
-    return g_applications;
-}
-
-void Application::printListApplication() {
-    size_t maxShow = std::min<size_t>(g_applications.size(), 50);
-    for (size_t i = 0; i < maxShow; ++i) {
-        const auto& app = g_applications[i];
-        std::cout << "[" << i << "] " << app.name << "\n"
-            << "     Id:  " << app.id << "\n"
-            << "     Exe: " << app.command << "\n\n";
-    }
-    if (g_applications.size() > maxShow) {
-        std::cout << "... (" << (g_applications.size() - maxShow)
-            << " ung dung khac khong hien het)\n";
-    }
-}
-
-//===================================================START APPLICATION==================================
-bool Application::StartProcessShell(const std::string& pathOrCommand) {
-    if (pathOrCommand.empty()) return false;
-
-    HINSTANCE hInst = ShellExecuteA(
-        nullptr,
-        "open",
-        pathOrCommand.c_str(),
-        nullptr,
-        nullptr,
-        SW_SHOWNORMAL
-    );
-
-    INT_PTR code = reinterpret_cast<INT_PTR>(hInst);
-    return code > 32;
-}
-
-bool Application::StartApplicationByName(const std::string& displayName) {
-    std::string target = ToLower(displayName);
-
-    for (const auto& app : g_applications) {
-        if (ToLower(app.name) == target) {
-            if (!app.command.empty()) {
-                return StartProcessShell(app.command);
-            }
-            else {
-                return StartProcessShell(app.name);
-            }
-        }
-    }
-
-    return false;
-}
-
-bool Application::StartApplicationFromInput(const std::string& inputRaw) {
-    std::string input = Trim(inputRaw);
-    if (input.empty()) return false;
-
-    // 1) Thử coi input là DisplayName của app đã cài (ListApplication)
-    std::string target = ToLowerStr(input);
-
-    for (const auto& app : g_applications) {
-        if (ToLowerStr(Trim(app.name)) == target) {
-            // tìm thấy app theo DisplayName -> chạy theo exePath (command)
-            if (!app.command.empty()) {
-                return StartProcessShell(app.command);
-            }
-        }
-    }
-
-    // 2) Nếu không phải DisplayName, coi như user nhập exePath / tên lệnh
-    //    giao trực tiếp cho ShellExecute (notepad, notepad.exe, C:\...\zalo.exe, ...).
-    return StartProcessShell(input);
-}
-
-
-//======================================STOP APPLICATION=======================================================
-
-std::string Application::ToLowerStr(std::string s) {
-    for (char& c : s) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return s;
-}
-
+// chuẩn hoá path: trim, đổi / thành \, lowercase → để so sánh an toàn
 std::string Application::NormalizePath(const std::string& path) {
     std::string s = Trim(path);
     std::replace(s.begin(), s.end(), '/', '\\');
-    return ToLowerStr(s);
+    return ToLower(s);
 }
 
-// Lấy full path exe của process PID
+// lấy full path exe của process từ pid
 bool Application::GetProcessImagePath(DWORD pid, std::string& outPath) {
     outPath.clear();
 
+    // mở process với quyền query thông tin
     HANDLE hProcess = OpenProcess(
         PROCESS_QUERY_LIMITED_INFORMATION,
         FALSE,
@@ -301,10 +213,12 @@ bool Application::GetProcessImagePath(DWORD pid, std::string& outPath) {
     return true;
 }
 
-// Kiểm tra còn process nào chạy bằng exePath này không
+// duyệt toàn bộ process trong hệ thống,
+// trả về true nếu tồn tại process có exePath trùng với exePath truyền vào
 bool Application::HasProcessWithExe(const std::string& exePath) {
     std::string target = NormalizePath(exePath);
 
+    // chụp snapshot tất cả process
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnap == INVALID_HANDLE_VALUE) return false;
 
@@ -318,12 +232,13 @@ bool Application::HasProcessWithExe(const std::string& exePath) {
 
     do {
         DWORD pid = pe.th32ProcessID;
-        if (pid == 0) continue; // Idle
+        if (pid == 0) continue; // bỏ process idle
 
         std::string procPath;
         if (!GetProcessImagePath(pid, procPath)) continue;
 
         if (NormalizePath(procPath) == target) {
+            // tìm thấy ít nhất một process trùng exePath
             CloseHandle(hSnap);
             return true;
         }
@@ -334,71 +249,71 @@ bool Application::HasProcessWithExe(const std::string& exePath) {
     return false;
 }
 
-// Kill tất cả process chạy bằng exePath
-int Application::KillProcessesByExe(const std::string& exePath) {
-    std::string target = NormalizePath(exePath);
-    int killedCount = 0;
+//----------------- public api -----------------
 
-    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnap == INVALID_HANDLE_VALUE) return 0;
+// đọc registry, xây dựng lại danh sách ứng dụng đã cài
+void Application::LoadInstalledApplications() {
+    g_applications.clear();
 
-    PROCESSENTRY32 pe;
-    pe.dwSize = sizeof(pe);
+    // app cài cho toàn máy (64-bit / chung)
+    EnumerateUninstallRoot(
+        HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+        "HKLM"
+    );
 
-    if (!Process32First(hSnap, &pe)) {
-        CloseHandle(hSnap);
-        return 0;
-    }
+    // app 32-bit trên hệ điều hành 64-bit
+    EnumerateUninstallRoot(
+        HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+        "HKLM32"
+    );
 
-    do {
-        DWORD pid = pe.th32ProcessID;
-        if (pid == 0) continue;
-
-        std::string procPath;
-        if (!GetProcessImagePath(pid, procPath)) continue;
-
-        if (NormalizePath(procPath) == target) {
-            HANDLE hProc = OpenProcess(
-                PROCESS_TERMINATE,
-                FALSE,
-                pid
-            );
-            if (hProc) {
-                if (TerminateProcess(hProc, 0)) {
-                    ++killedCount;
-                }
-                CloseHandle(hProc);
-            }
-        }
-
-    } while (Process32Next(hSnap, &pe));
-
-    CloseHandle(hSnap);
-    return killedCount;
+    // app cài cho user hiện tại
+    EnumerateUninstallRoot(
+        HKEY_CURRENT_USER,
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+        "HKCU"
+    );
 }
 
-bool Application::StopApplicationByName(const std::string& displayName) {
-    std::string targetName = ToLowerStr(Trim(displayName));
-    if (targetName.empty()) return false;
-
-    const ApplicationInfo* found = nullptr;
+// trả về vector<pair<ApplicationInfo, bool>>
+// bool = true nếu hiện tại đang có process chạy exe tương ứng với app đó
+std::vector<std::pair<ApplicationInfo, bool>> Application::ListApplicationsWithStatus() {
+    std::vector<std::pair<ApplicationInfo, bool>> result;
+    result.reserve(g_applications.size());
 
     for (const auto& app : g_applications) {
-        if (ToLowerStr(Trim(app.name)) == targetName) {
-            found = &app;
-            break;
+        bool running = false;
+        if (!app.path.empty()) {
+            // kiểm tra xem exe của app có process nào đang chạy không
+            running = HasProcessWithExe(app.path);
         }
+        result.emplace_back(app, running);
     }
 
-    if (!found || found->command.empty()) {
+    return result;
+}
+
+
+//===================================================START / STOP APPLICATION==================================
+
+bool Application::StartApplication(const std::string& pathOrName) {
+    // giao việc cho Process::StartProcess (đã hỗ trợ zoom, zoom.exe, notepad, full path...)
+    return m_process.StartProcess(pathOrName);
+}
+
+bool Application::StopApplication(const std::string& nameOrPid) {
+    std::string resultMsg = m_process.StopProcess(nameOrPid);
+
+    // (tuỳ ý) in ra console để debug / xem log
+    std::cout << "[StopApplication] " << resultMsg << "\n";
+
+    // Nếu chuỗi bắt đầu bằng "Loi" thì coi là thất bại
+    if (resultMsg.rfind("Loi", 0) == 0 || resultMsg.rfind("Loi:", 0) == 0) {
         return false;
     }
 
-    if (!HasProcessWithExe(found->command)) {
-        return true; // không có process nào => coi như đã stop rồi
-    }
-
-    KillProcessesByExe(found->command);
-    return !HasProcessWithExe(found->command);
+    // Còn lại coi như ok (đã kill được, hoặc vốn không có process nào)
+    return true;
 }
-

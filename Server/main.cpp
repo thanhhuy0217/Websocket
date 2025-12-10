@@ -222,22 +222,40 @@ public:
             else if (command == "screenshot")
             {
                 ws_.text(true);
-                ws_.write(net::buffer("Server: Capturing screenshot..."));
+                ws_.write(net::buffer("Server: OK, capturing screenshot..."));
 
+                // Kích thước màn hình – phải trùng với bên ScreenShot.cpp
                 int width = GetSystemMetrics(SM_CXSCREEN);
                 int height = GetSystemMetrics(SM_CYSCREEN);
+
+                // Gọi hàm ScreenShot() trong ScreenShot.cpp
+                // Trả về buffer BGRA 32-bit: size = width * height * 4
                 std::vector<std::uint8_t> pixels = ScreenShot();
 
-                if (pixels.empty()) {
+                if (pixels.empty())
+                {
                     ws_.text(true);
                     ws_.write(net::buffer("Server: Error capturing screenshot."));
                 }
-                else {
+                else
+                {
+                    // Đổi sang vector<char> để dùng lại base64_encode(const std::vector<char>&)
                     std::vector<char> bytes(pixels.begin(), pixels.end());
                     std::string encoded = base64_encode(bytes);
-                    std::string response = "screenshot " + std::to_string(width) + " " + std::to_string(height) + " " + encoded;
+
+                    // Gửi cho client:
+                    //  screenshot <w> <h> <base64_raw_bgra>
+                    std::string response =
+                        "screenshot " +
+                        std::to_string(width) + " " +
+                        std::to_string(height) + " " +
+                        encoded;
+
                     ws_.text(true);
                     ws_.write(net::buffer(response));
+
+                    std::cout << "[SERVER] Screenshot (" << width << "x" << height
+                        << ") sent to Client.\n";
                 }
             }
 
@@ -303,54 +321,92 @@ public:
             // -------------------------------------------------
 
             // List Apps
-            else if (command == "list-apps" || command == "list-app")
+            else if (command == "list-app")
             {
-                auto apps = myAppModule.LoadInstalledApplications();
+                // Cập nhật danh sách ứng dụng từ Registry
+                myAppModule.LoadInstalledApplications();
+
+                // Lấy danh sách kèm trạng thái đang chạy
+                auto apps = myAppModule.ListApplicationsWithStatus();
+
                 ws_.text(true);
-                if (apps.empty()) {
-                    ws_.write(net::buffer("Server: No applications found."));
+
+                if (apps.empty())
+                {
+                    ws_.write(net::buffer("Server: Khong tim thay ung dung nao trong Registry."));
                 }
-                else {
-                    std::string msg = "INSTALLED APPLICATIONS:\n";
-                    size_t maxShow = std::min<std::size_t>(apps.size(), 50);
-                    for (size_t i = 0; i < maxShow; ++i) {
-                        msg += "[" + std::to_string(i) + "] " + apps[i].name + "\n";
+                else
+                {
+                    std::string msg = "DANH SACH UNG DUNG DA CAI:\n";
+
+                    // Nếu muốn giới hạn số lượng gửi, có thể dùng maxShow, còn không thì in hết
+                    // size_t maxShow = std::min<std::size_t>(apps.size(), 50);
+                    size_t maxShow = apps.size(); // in toàn bộ
+
+                    for (size_t i = 0; i < maxShow; ++i)
+                    {
+                        const auto& appInfo = apps[i].first; // ApplicationInfo { name, path }
+                        bool running = apps[i].second;
+
+                        msg += "[" + std::to_string(i) + "] " + appInfo.name;
+                        if (running) msg += " (RUNNING)";
+                        msg += "\n";
+
+                        msg += "    Exe: " + appInfo.path + "\n\n";
                     }
+
                     ws_.write(net::buffer(msg));
                 }
-            }
-            // Start App
+                }
+
+                // 6.2. Start Application
+                // Lệnh: "start-app <ten app hoac exe/path>"
+                // Ví dụ: start-app zoom, start-app chrome, start-app C:\...\Zalo.exe
             else if (command.rfind("start-app ", 0) == 0)
             {
-                std::string input = command.substr(10);
-                myAppModule.LoadInstalledApplications();
-                if (myAppModule.StartApplicationFromInput(input)) {
-                    ws_.text(true);
-                    ws_.write(net::buffer("Server: Launched application: " + input));
+                const std::string prefix = "start-app ";
+                std::string input = command.substr(prefix.size()); // phần sau "start-app "
+
+                // Application::StartApplication chỉ wrap sang Process::StartProcess,
+                // nên không bắt buộc phải LoadInstalledApplications ở đây.
+                bool ok = myAppModule.StartApplication(input);
+
+                ws_.text(true);
+                if (ok)
+                {
+                    ws_.write(net::buffer("Server: Da mo ung dung: " + input));
                 }
-                else {
-                    ws_.text(true);
-                    ws_.write(net::buffer("Server: Could not launch application: " + input));
+                else
+                {
+                    ws_.write(net::buffer("Server: Khong the mo ung dung: " + input));
                 }
-            }
-            // Stop App
+                }
+
+                // 6.3. Stop Application
+                // Lệnh: "stop-app <ten exe hoac PID>"
+                // Ví dụ: stop-app chrome, stop-app chrome.exe, stop-app 1234
             else if (command.rfind("stop-app ", 0) == 0)
             {
-                std::string input = command.substr(9);
-                myAppModule.LoadInstalledApplications();
-                if (myAppModule.StopApplicationByName(input)) {
-                    ws_.text(true);
-                    ws_.write(net::buffer("Server: Stopped application: " + input));
-                }
-                else {
-                    ws_.text(true);
-                    ws_.write(net::buffer("Server: Application not found: " + input));
-                }
-            }
-            else
-            {
+                const std::string prefix = "stop-app ";
+                std::string input = command.substr(prefix.size()); // phần sau "stop-app "
+
+                // StopApplication hiện tại wrap sang Process::StopProcess:
+                // - nếu là số  -> dừng theo PID
+                // - nếu là chữ -> dừng theo tên exe (chrome, chrome.exe, ...)
+
+                bool ok = myAppModule.StopApplication(input);
+
                 ws_.text(true);
-                ws_.write(net::buffer("Server: Unknown command!"));
+                if (ok)
+                {
+                    ws_.write(net::buffer(
+                        "Server: Da dung ung dung (hoac khong co process nao dang chay): " + input));
+                }
+                else
+                {
+                    ws_.write(net::buffer(
+                        "Server: Loi khi dung ung dung / PID: " + input));
+                }
             }
         }
         buffer_.consume(buffer_.size());
