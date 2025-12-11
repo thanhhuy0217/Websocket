@@ -17,7 +17,7 @@
 #include <windows.h>   
 #include <iphlpapi.h>
 #include <atomic> 
-#include <iomanip> // Format so
+#include <iomanip>
 
 // Cac module chuc nang
 #include "Process.h"
@@ -31,6 +31,7 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib") 
 #pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "psapi.lib")
 
 extern "C" __declspec(dllimport) BOOL __stdcall SetProcessDPIAware();
 
@@ -41,7 +42,7 @@ namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
 // =============================================================
-// PHAN 1: CAC HAM HO TRO (LIVE STATUS)
+// PHAN 1: CAC HAM HO TRO (LIVE STATUS & RESOURCES)
 // =============================================================
 
 static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -91,6 +92,24 @@ std::string GetOSVersionStr() {
         if (RegQueryValueExA(hKey, "ProductName", nullptr, nullptr, (LPBYTE)productName, &dataSize) == ERROR_SUCCESS) {
             osName = std::string(productName);
         }
+
+        char currentBuild[32] = { 0 };
+        dataSize = sizeof(currentBuild);
+        if (RegQueryValueExA(hKey, "CurrentBuild", nullptr, nullptr, (LPBYTE)currentBuild, &dataSize) == ERROR_SUCCESS) {
+            int buildNumber = std::atoi(currentBuild);
+            // Windows 11 bat dau tu build 22000
+            if (buildNumber >= 22000) {
+                // Thay the chu "Windows 10" thanh "Windows 11" neu co
+                size_t pos = osName.find("Windows 10");
+                if (pos != std::string::npos) {
+                    osName.replace(pos, 10, "Windows 11");
+                }
+                else if (osName.find("Windows 11") == std::string::npos) {
+                    // Neu khong tim thay chu Windows 10, them Windows 11 vao
+                    osName = "Windows 11 " + osName;
+                }
+            }
+        }
         RegCloseKey(hKey);
     }
     return osName;
@@ -104,6 +123,13 @@ std::string GetRamFree() {
     std::stringstream ss;
     ss << std::fixed << std::setprecision(1) << freeGB << " GB";
     return ss.str();
+}
+
+std::string GetRamUsagePercent() {
+    MEMORYSTATUSEX statex;
+    statex.dwLength = sizeof(statex);
+    GlobalMemoryStatusEx(&statex);
+    return std::to_string((int)statex.dwMemoryLoad);
 }
 
 std::string GetDiskFree() {
@@ -129,6 +155,38 @@ std::string GetProcessCount() {
         CloseHandle(hSnap);
     }
     return std::to_string(count);
+}
+
+std::string GetCpuUsage() {
+    FILETIME idleTime, kernelTime, userTime;
+    if (!GetSystemTimes(&idleTime, &kernelTime, &userTime)) return "0";
+
+    static unsigned long long prevTotal = 0;
+    static unsigned long long prevIdle = 0;
+
+    unsigned long long total =
+        ((unsigned long long)kernelTime.dwHighDateTime << 32 | kernelTime.dwLowDateTime) +
+        ((unsigned long long)userTime.dwHighDateTime << 32 | userTime.dwLowDateTime);
+
+    unsigned long long idle =
+        ((unsigned long long)idleTime.dwHighDateTime << 32 | idleTime.dwLowDateTime);
+
+    unsigned long long diffTotal = total - prevTotal;
+    unsigned long long diffIdle = idle - prevIdle;
+
+    // Cap nhat lai trang thai cu
+    prevTotal = total;
+    prevIdle = idle;
+
+    if (diffTotal == 0) return "0";
+
+    double usage = (100.0 * (diffTotal - diffIdle)) / diffTotal;
+
+    // Gioi han 0-100
+    if (usage < 0) usage = 0;
+    if (usage > 100) usage = 100;
+
+    return std::to_string((int)usage);
 }
 
 std::string GetBatteryStatus() {
@@ -204,14 +262,16 @@ public:
                 std::string hostname = GetComputerNameStr();
                 std::string os = GetOSVersionStr();
 
-                // [NEW] 4 Live Status de lay:
                 std::string ramFree = GetRamFree();
                 std::string battery = GetBatteryStatus();
                 std::string diskFree = GetDiskFree();
                 std::string procCount = GetProcessCount();
 
-                // Format: sys-info Hostname|OS|RAMFree|Battery|DiskFree|ProcessCount
-                std::string response = "sys-info " + hostname + "|" + os + "|" + ramFree + "|" + battery + "|" + diskFree + "|" + procCount;
+                std::string cpuUsage = GetCpuUsage();
+                std::string ramUsage = GetRamUsagePercent();
+
+                // Format: sys-info Host|OS|RAMFree|Battery|DiskFree|ProcessCount|CPU%|RAM%
+                std::string response = "sys-info " + hostname + "|" + os + "|" + ramFree + "|" + battery + "|" + diskFree + "|" + procCount + "|" + cpuUsage + "|" + ramUsage;
 
                 ws_.text(true);
                 ws_.write(net::buffer(response));
@@ -246,10 +306,6 @@ public:
                         });
                     g_webcamThread.detach();
                 }
-            }
-            else if (command == "stop-capture") {
-                StopWebcam();
-                ws_.text(true); ws_.write(net::buffer("Server: Stopping webcam..."));
             }
             else if (command == "screenshot") {
                 ws_.text(true); ws_.write(net::buffer("Server: OK, capturing screenshot..."));
@@ -320,14 +376,14 @@ public:
                 }
             }
             else if (command.rfind("start-app ", 0) == 0) {
-                    std::string input = command.substr(10);
-                    bool ok = myAppModule.StartApplication(input);
-                    ws_.text(true); ws_.write(net::buffer(ok ? "Server: Started " + input : "Server: Failed " + input));
+                std::string input = command.substr(10);
+                bool ok = myAppModule.StartApplication(input);
+                ws_.text(true); ws_.write(net::buffer(ok ? "Server: Started " + input : "Server: Failed " + input));
             }
             else if (command.rfind("stop-app ", 0) == 0) {
-                        std::string input = command.substr(9);
-                        bool ok = myAppModule.StopApplication(input);
-                        ws_.text(true); ws_.write(net::buffer(ok ? "Server: Stopped " + input : "Server: Failed stop " + input));
+                std::string input = command.substr(9);
+                bool ok = myAppModule.StopApplication(input);
+                ws_.text(true); ws_.write(net::buffer(ok ? "Server: Stopped " + input : "Server: Failed stop " + input));
             }
         }
         buffer_.consume(buffer_.size());
@@ -367,7 +423,7 @@ int main() {
     auto const port = static_cast<unsigned short>(8080);
     int const threads = 1;
 
-    std::cout << "Starting AuraLink Server ...\n";
+    std::cout << "Starting AuraLink Server...\n";
     PrintLocalIPs();
     std::cout << "Listening on ws://" << address.to_string() << ":" << port << "\n";
     std::cout << "----------------------------------\n";

@@ -8,6 +8,7 @@
 #include <cstdio>       
 #include <memory>       
 #include <algorithm>
+#include <thread> // Cho sleep
 
 // --- Ham tu dong tim ten Camera ---
 std::string GetCameraNameAuto()
@@ -46,27 +47,37 @@ std::string GetCameraNameAuto()
 std::vector<char> CaptureWebcam(int durationSeconds)
 {
     std::vector<char> fileData;
-    std::string outputFile = "webcam_temp.mp4";
+    std::string rawFile = "webcam_raw.mp4";   // File tam chua du lieu tho
+    std::string finalFile = "webcam_final.mp4"; // File hoan chinh sau khi sua
 
     std::string cameraName = GetCameraNameAuto();
 
     if (cameraName.empty()) {
-        std::cerr << "[ERROR] Could not auto-detect any webcam! (Check ffmpeg.exe)\n";
+        std::cerr << "[WEBCAM] Error: Could not auto-detect webcam.\n";
         return fileData;
     }
 
-    std::cout << "[WEBCAM] Start Recording: [" << cameraName << "] for " << durationSeconds << "s...\n";
+    int actualDuration = durationSeconds + 1;
 
-    // Cau lenh quay video
-    std::string command = "ffmpeg -f dshow -i video=\"" + cameraName + "\" -t " +
-        std::to_string(durationSeconds) +
+    std::cout << "[WEBCAM] Recording " << durationSeconds << "s (Buffer: " << actualDuration << "s)...\n";
+
+    std::string recordCmd = "ffmpeg -f dshow -i video=\"" + cameraName + "\" -t " +
+        std::to_string(actualDuration) +
         " -c:v libx264 -preset ultrafast -pix_fmt yuv420p " +
-        outputFile + " -y > nul 2>&1";
+        "-g 30 " +
+        "-movflags frag_keyframe+empty_moov+default_base_moof " +
+        rawFile + " -y > nul 2>&1";
 
-    int result = system(command.c_str());
+    system(recordCmd.c_str());
 
-    // 4. Doc file ket qua (Du la quay het gio hay bi kill)
-    std::ifstream file(outputFile, std::ios::binary | std::ios::ate);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    std::cout << "[WEBCAM] Processing/Repairing video...\n";
+    std::string repairCmd = "ffmpeg -y -i " + rawFile + " -c copy " + finalFile + " > nul 2>&1";
+    system(repairCmd.c_str());
+
+    // 4. Doc file KET QUA (Final)
+    std::ifstream file(finalFile, std::ios::binary | std::ios::ate);
     if (file.is_open()) {
         std::streamsize size = file.tellg();
         file.seekg(0, std::ios::beg);
@@ -74,26 +85,20 @@ std::vector<char> CaptureWebcam(int durationSeconds)
         if (size > 0) {
             fileData.resize(size);
             file.read(fileData.data(), size);
-            std::cout << "[SUCCESS] Video captured (" << size << " bytes).\n";
+            std::cout << "[WEBCAM] Success! Captured " << size << " bytes.\n";
         }
         else {
-            // Chi bao loi neu file rong
-            std::cerr << "[WARNING] Output file is empty (maybe stopped too fast).\n";
+            std::cerr << "[WEBCAM] Warning: Output file empty.\n";
         }
-
         file.close();
-        std::remove(outputFile.c_str());
     }
     else {
-        std::cerr << "[ERROR] Output file not found.\n";
+        std::cerr << "[WEBCAM] Error: Could not open output file.\n";
     }
 
-    return fileData;
-}
+    // Don dep
+    std::remove(rawFile.c_str());
+    std::remove(finalFile.c_str());
 
-void StopWebcam()
-{
-    std::cout << "[WEBCAM] Stopping recording...\n";
-    // Lenh nay se kill ffmpeg, lam cho CaptureWebcam tiep tuc chay xuong phan doc file
-    system("taskkill /F /IM ffmpeg.exe > nul 2>&1");
+    return fileData;
 }
