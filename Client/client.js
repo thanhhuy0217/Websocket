@@ -6,6 +6,7 @@ let intervalSensors = null;
 let systemStartTime = 0; 
 let lastScreenshotUrl = null; 
 let lastWebcamUrl = null;
+let pingStartTime = 0;
 
 // Webcam State
 let isRecording = false;
@@ -96,7 +97,13 @@ function connectToServer() {
     const btnText = document.getElementById("btn-text");
     if(btnText) btnText.innerText = "Connecting...";
     
-    if (websocket) websocket.close();
+    // [FIXED] DON DEP SOCKET CU TRUOC KHI TAO MOI
+    if (websocket) {
+        // Go bo cac event listener cua socket cu de tranh xung dot (Race Condition)
+        websocket.onclose = null;
+        websocket.onerror = null;
+        websocket.close();
+    }
 
     try {
         websocket = new WebSocket(wsUri);
@@ -137,6 +144,9 @@ function setConnectedState(isConnected) {
         if(dot) { dot.classList.remove("connected"); dot.classList.add("disconnected"); }
         if(btnText) btnText.innerText = "Connect";
         if(sysNetwork) { sysNetwork.innerText = "Disconnected"; sysNetwork.style.color = "#fb7185"; }
+        
+        // [FIXED] GOI RESET DATA NGAY KHI TRANG THAI CHUYEN SANG DISCONNECTED
+        resetDashboardState();
     }
 }
 
@@ -150,7 +160,6 @@ function resetDashboardState() {
     document.getElementById("sys-hostname").innerText = "---";
     document.getElementById("sys-os").innerText = "---";
     
-    // [RESET ID MOI]
     document.getElementById("status-ram").innerText = "---";
     document.getElementById("status-batt").innerText = "---";
     document.getElementById("status-disk").innerText = "---";
@@ -177,30 +186,38 @@ function startDashboardUpdates() {
         document.getElementById("sys-uptime").innerText = `${h}:${m}:${s}`;
     }, 1000);
 
-    // [UPDATED] Chi con 1 Loop duy nhat de cap nhat Info moi 3s (vi rat nhe)
+    // Ping 2s
+    if(intervalPing) clearInterval(intervalPing);
+    intervalPing = setInterval(() => { 
+        pingStartTime = Date.now(); 
+        sendCmd("ping"); 
+    }, 2000);
+
+    // Info 3s - Get Real Data
     if(intervalSensors) clearInterval(intervalSensors);
     intervalSensors = setInterval(() => {
         sendCmd("get-sys-info"); 
-        // Mock data cho bieu do
-        const cpu = Math.floor(Math.random() * 30) + 10;
-        const chartCpu = document.getElementById("chart-cpu");
-        if(chartCpu) { chartCpu.style.setProperty('--p', cpu); chartCpu.querySelector('span').innerText = cpu + "%"; }
-        const ram = Math.floor(Math.random() * 20) + 40;
-        const chartRam = document.getElementById("chart-ram");
-        if(chartRam) { chartRam.style.setProperty('--p', ram); chartRam.querySelector('span').innerText = ram + "%"; }
     }, 3000); 
 }
 
 function stopDashboardUpdates() {
     if(intervalUptime) clearInterval(intervalUptime);
+    if(intervalPing) clearInterval(intervalPing);
     if(intervalSensors) clearInterval(intervalSensors);
     resetDashboardState();
 }
 
 /* --- MESSAGE HANDLER --- */
 function handleIncomingMessage(data) {
+    if (data.trim() === "pong") {
+        const latency = Date.now() - pingStartTime;
+        const elPing = document.getElementById("sensor-ping");
+        // [NOTE] Code cu cua ban bi thieu element id="sensor-ping" trong HTML
+        // Nhung neu ban da doi sang "status-procs" (Processes) thay cho Ping thi bo qua
+        return; 
+    }
+
     if (data.startsWith("sys-info ")) {
-        // [UPDATED] Format: sys-info Host|OS|RAMFree|Battery|DiskFree|ProcessCount
         const parts = data.substring(9).split("|");
         
         if (parts.length >= 2) {
@@ -208,11 +225,21 @@ function handleIncomingMessage(data) {
             document.getElementById("sys-os").innerText = parts[1];
         }
         if (parts.length >= 6) {
-            // Cap nhat 4 o Live Status
             document.getElementById("status-ram").innerText = parts[2];
             document.getElementById("status-batt").innerText = parts[3];
             document.getElementById("status-disk").innerText = parts[4];
             document.getElementById("status-procs").innerText = parts[5];
+        }
+        // [FIXED] Parse an toan hon voi trim()
+        if (parts.length >= 8) {
+            const cpuVal = parseInt(parts[6].trim());
+            const ramVal = parseInt(parts[7].trim());
+
+            const chartCpu = document.getElementById("chart-cpu");
+            if(chartCpu) { chartCpu.style.setProperty('--p', cpuVal); chartCpu.querySelector('span').innerText = cpuVal + "%"; }
+
+            const chartRam = document.getElementById("chart-ram");
+            if(chartRam) { chartRam.style.setProperty('--p', ramVal); chartRam.querySelector('span').innerText = ramVal + "%"; }
         }
     }
     else if (data.startsWith("file ")) {
@@ -254,7 +281,7 @@ function handleIncomingMessage(data) {
         
         if(data.includes("Server: Started successfully")) showToast("Process Started Successfully");
         if(data.includes("Server: Da mo ung dung")) showToast("App Started Successfully");
-        if(data.includes("Server: Da dung ung dung")) showToast("App Stopped Successfully");
+        if(data.includes("Server: Da dung ung dung")) showToast("Application Stopped Successfully");
         
         if(data.includes("Error") || data.includes("Loi") || data.includes("failed")) {
              showToast(data, "error");
@@ -401,63 +428,49 @@ function restoreHistoryItem(type, url) {
     }
 }
 
-/* --- WEBCAM LOGIC --- */
+/* --- WEBCAM LOGIC (UPDATED: NO STOP) --- */
 function toggleWebcam() {
     const btn = document.getElementById("btn-record");
     
-    if (!isRecording) {
-        // START
-        sendCmd("capture"); 
-        isRecording = true;
-        countdownVal = 10;
-        
-        btn.classList.remove("btn-gradient-hybrid");
-        btn.classList.add("btn-danger-red"); 
-        updateBtnText(countdownVal);
+    if (isRecording) return; 
 
-        if(webcamTimer) clearInterval(webcamTimer);
-        webcamTimer = setInterval(() => {
-            countdownVal--;
+    // START RECORDING
+    sendCmd("capture"); 
+    isRecording = true;
+    countdownVal = 10;
+    
+    // Disable button de khong bam Stop duoc
+    btn.disabled = true;
+    
+    // Hien thi trang thai dang quay
+    updateBtnText(countdownVal);
+
+    if(webcamTimer) clearInterval(webcamTimer);
+    webcamTimer = setInterval(() => {
+        countdownVal--;
+        if (countdownVal > 0) {
             updateBtnText(countdownVal);
-            if (countdownVal <= 0) {
-                clearInterval(webcamTimer);
-                btn.innerHTML = `<i data-lucide="loader" class="btn-icon-inside spinning"></i> Processing...`;
-                if(typeof lucide !== 'undefined') lucide.createIcons();
-                btn.disabled = true; 
-            }
-        }, 1000);
+        } else {
+            clearInterval(webcamTimer);
+            // Het gio -> Chuyen sang trang thai xu ly
+            btn.innerHTML = `<i data-lucide="loader" class="btn-icon-inside spinning"></i> Processing...`;
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+        }
+    }, 1000);
 
-        if(webcamTimeout) clearTimeout(webcamTimeout);
-        webcamTimeout = setTimeout(() => {
-            if(isRecording) { 
-                showToast("Timeout: No video from server", "error"); 
-                resetWebcamUI(); 
-            }
-        }, 16000);
-
-    } else {
-        // STOP
-        sendCmd("stop-capture"); 
-        
-        clearInterval(webcamTimer);
-        btn.innerHTML = `<i data-lucide="loader" class="btn-icon-inside spinning"></i> Processing...`;
-        btn.disabled = true; 
-        if(typeof lucide !== 'undefined') lucide.createIcons();
-        
-        if(webcamTimeout) clearTimeout(webcamTimeout);
-        webcamTimeout = setTimeout(() => {
-            if(isRecording) { 
-                showToast("Timeout: Stop failed", "error"); 
-                resetWebcamUI(); 
-            }
-        }, 8000); 
-    }
+    if(webcamTimeout) clearTimeout(webcamTimeout);
+    webcamTimeout = setTimeout(() => {
+        if(isRecording) { 
+            showToast("Timeout: No video from server", "error"); 
+            resetWebcamUI(); 
+        }
+    }, 15000);
 }
 
 function updateBtnText(sec) {
     const btn = document.getElementById("btn-record");
     if(btn) {
-        btn.innerHTML = `<i data-lucide="square" class="btn-icon-inside"></i> Stop (${sec}s)`;
+        btn.innerHTML = `<i data-lucide="video" class="btn-icon-inside"></i> Recording... ${sec}s`;
         if(typeof lucide !== 'undefined') lucide.createIcons();
     }
 }
@@ -494,7 +507,6 @@ function resetWebcamUI() {
     if(btn) { 
         btn.disabled = false;
         btn.className = "btn-gradient-hybrid large"; 
-        btn.classList.remove("btn-danger-red");
         btn.innerHTML = `<i data-lucide="radio" class="btn-icon-inside"></i> Record (10s)`; 
     }
     if(typeof lucide !== 'undefined') lucide.createIcons();
