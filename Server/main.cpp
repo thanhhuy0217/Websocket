@@ -470,7 +470,7 @@ public:
 
                     ws_.write(net::buffer(msg));
                 }
-                }
+            }
 
             // 6.2. Start Application
             // Lệnh: "start-app <ten app hoac exe/path>"
