@@ -14,7 +14,8 @@
 #include <memory>
 #include <vector>
 #include <fstream>
-#include <windows.h>    
+#include <windows.h>   
+#include <iphlpapi.h>
 
 // Cac module chuc nang
 #include "Process.h"
@@ -26,6 +27,11 @@
 // Link thu vien Windows
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "user32.lib") 
+#pragma comment(lib, "iphlpapi.lib")
+
+// [MOI] Khai bao ham de lay do phan giai man hinh that (tranh bi Windows Scale)
+extern "C" __declspec(dllimport) BOOL __stdcall SetProcessDPIAware();
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -113,9 +119,93 @@ std::string GetOSVersionStr() {
     return osName;
 }
 
-// Khai bao ham Shutdown/Restart (Dinh nghia o file khac hoac duoi cung)
+// 4. Lay Do Phan Giai Man Hinh (Thuc te)
+std::string GetScreenResolution() {
+    // Lay Virtual Screen de bao quat tat ca man hinh neu co
+    int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+    // Fallback neu khong lay duoc
+    if (width == 0) width = GetSystemMetrics(SM_CXSCREEN);
+    if (height == 0) height = GetSystemMetrics(SM_CYSCREEN);
+
+    return std::to_string(width) + "x" + std::to_string(height);
+}
+
+// 5. Lay Dung Luong Pin
+std::string GetBatteryStatus() {
+    SYSTEM_POWER_STATUS sps;
+    if (GetSystemPowerStatus(&sps)) {
+        if (sps.BatteryLifePercent == 255) return "Plugged In"; // May ban hoac khong co pin
+        return std::to_string(sps.BatteryLifePercent) + "%";
+    }
+    return "Unknown";
+}
+
+// 6. Lay Nhiet Do CPU (Goi PowerShell qua WMI)
+std::string GetRealCPUTemp() {
+    std::string tempStr = "N/A";
+    // Lenh PowerShell lay nhiet do (Don vi Kelvin x 10)
+    std::string cmd = "powershell -command \"Get-WmiObject MSAcpi_ThermalZoneTemperature -Namespace 'root/wmi' | Select -ExpandProperty CurrentTemperature\"";
+
+    // Chay lenh ngam
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(cmd.c_str(), "r"), _pclose);
+
+    if (!pipe) return "Err";
+
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+
+    // Xu ly ket qua (Kelvin -> Celsius)
+    try {
+        if (!result.empty()) {
+            double kelvin = std::stod(result);
+            double celsius = (kelvin - 2732) / 10.0;
+            if (celsius > 0 && celsius < 150) // Loc gia tri ao
+                return std::to_string((int)celsius) + "C";
+        }
+    }
+    catch (...) {}
+
+    return "N/A";
+}
+
+// 7. Lay IP
+void PrintLocalIPs() {
+    ULONG outBufLen = 15000;
+    PIP_ADAPTER_ADDRESSES pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
+
+    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen) == NO_ERROR) {
+        PIP_ADAPTER_ADDRESSES pCurrAddresses = pAddresses;
+        while (pCurrAddresses) {
+            if (pCurrAddresses->OperStatus == IfOperStatusUp && pCurrAddresses->IfType != IF_TYPE_SOFTWARE_LOOPBACK) {
+                PIP_ADAPTER_UNICAST_ADDRESS pUnicast = pCurrAddresses->FirstUnicastAddress;
+                if (pUnicast) {
+                    char ip[INET_ADDRSTRLEN];
+                    sockaddr_in* sa_in = (sockaddr_in*)pUnicast->Address.lpSockaddr;
+                    inet_ntop(AF_INET, &(sa_in->sin_addr), ip, INET_ADDRSTRLEN);
+
+                    // Chỉ in các IP mạng LAN (thường bắt đầu bằng 192.168... hoặc 10...)
+                    std::string ipStr(ip);
+                    if (ipStr.find("192.168.") == 0 || ipStr.find("10.") == 0 || ipStr.find("172.") == 0) {
+                        std::cout << ">>> YOUR SERVER IP: " << ipStr << " <<<\n";
+                    }
+                }
+            }
+            pCurrAddresses = pCurrAddresses->Next;
+        }
+    }
+    free(pAddresses);
+}
+
+// Khai bao ham Shutdown/Restart 
 void DoShutdown();
 void DoRestart();
+
+std::thread g_webcamThread;
 
 // Ham bao loi
 void fail(beast::error_code ec, char const* what) {
@@ -168,17 +258,30 @@ public:
             // NHOM 1: SYSTEM INFO & POWER
             // -------------------------------------------------
 
-            // Lay thong tin may (Hostname, OS)
+            // Lay thong tin may (Hostname, OS, Resolution, Battery)
             if (command == "get-sys-info")
             {
                 std::string hostname = GetComputerNameStr();
                 std::string os = GetOSVersionStr();
-                std::string response = "sys-info " + hostname + "|" + os;
+                std::string resolution = GetScreenResolution();
+                std::string battery = GetBatteryStatus();
+                std::string cpuTemp = GetRealCPUTemp();
+
+                // Format: Hostname | OS | Resolution | Battery
+                std::string response = "sys-info " + hostname + "|" + os + "|" + resolution + "|" + battery;
 
                 ws_.text(true);
                 ws_.write(net::buffer(response));
-                std::cout << "[SERVER] Sent Info: " << hostname << " | " << os << "\n";
+                std::cout << "[SERVER] Sent Info: " << hostname << " | " << os << " | " << resolution << "\n";
             }
+
+            // Xu ly Ping (Do do tre mang thuc te)
+            else if (command == "ping")
+            {
+                ws_.text(true);
+                ws_.write(net::buffer("pong"));
+            }
+
             // Shutdown
             else if (command == "shutdown")
             {
@@ -199,26 +302,36 @@ public:
             // -------------------------------------------------
 
             // Capture Webcam (10s)
-            else if (command == "capture")
-            {
-                ws_.text(true);
-                ws_.write(net::buffer("Server: OK, recording video (10s)... Please wait."));
-
-                std::vector<char> videoData = CaptureWebcam(10);
-
-                if (!videoData.empty()) {
-                    std::string encoded = base64_encode(videoData);
-                    std::string response = "file " + encoded;
+            else if (command == "capture") {
+                if (g_webcamThread.joinable()) {
                     ws_.text(true);
-                    ws_.write(net::buffer(response));
-                    std::cout << "[SERVER] Video sent.\n";
+                    ws_.write(net::buffer("Server: Busy recording..."));
                 }
                 else {
                     ws_.text(true);
-                    ws_.write(net::buffer("Server: Error recording video."));
+                    ws_.write(net::buffer("Server: Started recording..."));
+                    auto self = shared_from_this();
+                    g_webcamThread = std::thread([self]() {
+                        std::vector<char> videoData = CaptureWebcam(10);
+                        if (!videoData.empty()) {
+                            std::string encoded = base64_encode(videoData);
+                            try {
+                                self->ws_.text(true);
+                                self->ws_.write(net::buffer("file " + encoded));
+                            }
+                            catch (...) {}
+                        }
+                        });
+                    g_webcamThread.detach();
                 }
             }
-            // Screenshot
+            else if (command == "stop-capture") {
+                StopWebcam();
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Stopping webcam..."));
+            }
+
+            // Screenshot 
             else if (command == "screenshot")
             {
                 ws_.text(true);
@@ -317,7 +430,7 @@ public:
             }
 
             // -------------------------------------------------
-            // NHOM 5: APPLICATIONS (Registry)
+            // NHOM 5: APPLICATIONS 
             // -------------------------------------------------
 
             // List Apps
@@ -359,9 +472,9 @@ public:
                 }
                 }
 
-                // 6.2. Start Application
-                // Lệnh: "start-app <ten app hoac exe/path>"
-                // Ví dụ: start-app zoom, start-app chrome, start-app C:\...\Zalo.exe
+            // 6.2. Start Application
+            // Lệnh: "start-app <ten app hoac exe/path>"
+            // Ví dụ: start-app zoom, start-app chrome, start-app C:\...\Zalo.exe
             else if (command.rfind("start-app ", 0) == 0)
             {
                 const std::string prefix = "start-app ";
@@ -380,11 +493,11 @@ public:
                 {
                     ws_.write(net::buffer("Server: Khong the mo ung dung: " + input));
                 }
-                }
+            }
 
-                // 6.3. Stop Application
-                // Lệnh: "stop-app <ten exe hoac PID>"
-                // Ví dụ: stop-app chrome, stop-app chrome.exe, stop-app 1234
+            // 6.3. Stop Application
+            // Lệnh: "stop-app <ten exe hoac PID>"
+            // Ví dụ: stop-app chrome, stop-app chrome.exe, stop-app 1234
             else if (command.rfind("stop-app ", 0) == 0)
             {
                 const std::string prefix = "stop-app ";
@@ -454,12 +567,15 @@ private:
 
 int main()
 {
+    SetProcessDPIAware();
+
     // Lang nghe moi dia chi IP (0.0.0.0) de may khac trong LAN ket noi duoc
     auto const address = net::ip::make_address("0.0.0.0");
     auto const port = static_cast<unsigned short>(8080);
     int const threads = 1;
 
     std::cout << "Starting AuraLink Server...\n";
+    PrintLocalIPs();
     std::cout << "Listening on ws://" << address.to_string() << ":" << port << "\n";
     std::cout << "----------------------------------\n";
 
