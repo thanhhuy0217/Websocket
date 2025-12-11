@@ -367,7 +367,7 @@ int main() {
     auto const port = static_cast<unsigned short>(8080);
     int const threads = 1;
 
-    std::cout << "Starting AuraLink Server (Live Status Updated)...\n";
+    std::cout << "Starting AuraLink Server ...\n";
     PrintLocalIPs();
     std::cout << "Listening on ws://" << address.to_string() << ":" << port << "\n";
     std::cout << "----------------------------------\n";
