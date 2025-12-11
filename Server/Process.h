@@ -3,40 +3,45 @@
 #include <vector>
 #include <windows.h>
 #include <tlhelp32.h>
+#include <psapi.h>
 #include <algorithm>
+#include <iostream>
 #include <sstream>
 #include <iomanip>
-#include <psapi.h>
 
-// Định nghĩa chung Struct dùng cho cả 2 class
+// Định nghĩa struct dùng chung
 struct AppInfo {
     std::string name; // Tên hiển thị
-    std::string path; // Đường dẫn exe chuẩn
+    std::string path; // Đường dẫn exe
 };
 
 class Process {
+protected:
+    // Dữ liệu dùng chung (Protected để Application kế thừa dùng được)
+    std::vector<AppInfo> m_installedApps;
+    bool m_isListLoaded = false;
+
+    // Các hàm nội bộ
+    void ScanRegistryKey(HKEY hRoot, const char* subKey);
+    std::string GetRegString(HKEY hKey, const char* valueName);
+    double GetProcessMemory(DWORD pid);
+
 public:
     Process();
 
-    // --- CÁC HÀM XỬ LÝ HỆ THỐNG ---
+    // Load danh sách App (Application sẽ gọi hàm này)
+    void LoadInstalledApps();
 
-    // Đã đổi tên chuẩn thành StartProcess để khớp với main và Application
-    bool StartProcess(const std::string& path);
+    // Start App: Tìm trong Registry trước, không thấy thì chạy lệnh
+    bool StartProcess(const std::string& nameOrPath);
 
-    // Stop theo PID hoặc Tên Process
+    // Stop & List
     std::string StopProcess(const std::string& nameOrPid);
-
-    // Liệt kê process đang chạy (Snapshot)
     std::string ListProcesses();
 
-    // --- CÁC HÀM TIỆN ÍCH (STATIC) ---
+    // Các hàm tiện ích (Static)
     static std::string ToLower(std::string str);
     static bool IsNumeric(const std::string& str);
     static std::string CleanPath(const std::string& rawPath);
-
-    // Helper chuyển đổi Unicode sang String (Fix lỗi C2440)
     static std::string ConvertToString(const WCHAR* wstr);
-
-protected:
-    double GetProcessMemory(DWORD pid);
 };

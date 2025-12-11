@@ -1,8 +1,23 @@
 ﻿#include "Process.h"
 
+// Link thư viện hệ thống
+#pragma comment(lib, "psapi.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "user32.lib")
+
 using namespace std;
 
-Process::Process() {}
+// --- Helper Fix Lỗi Unicode ---
+string Process::ConvertToString(const WCHAR* wstr) {
+    if (!wstr) return "";
+    int size = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+    if (size <= 0) return "";
+    string str(size - 1, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, &str[0], size, NULL, NULL);
+    return str;
+}
+
+Process::Process() { m_isListLoaded = false; }
 
 // --- UTILS ---
 string Process::ToLower(string str) {
@@ -16,29 +31,26 @@ bool Process::IsNumeric(const string& str) {
     return all_of(str.begin(), str.end(), ::isdigit);
 }
 
-// Hàm fix lỗi Unicode (C2440)
-string Process::ConvertToString(const WCHAR* wstr) {
-#ifdef UNICODE
-    std::wstring ws(wstr);
-    // Chuyển wstring sang string (ASCII)
-    return std::string(ws.begin(), ws.end());
-#else
-    return std::string(wstr);
-#endif
-}
-
 string Process::CleanPath(const string& rawPath) {
     string s = rawPath;
     s.erase(0, s.find_first_not_of(" \t\r\n"));
     s.erase(s.find_last_not_of(" \t\r\n") + 1);
-
     if (!s.empty() && s.front() == '\"') s.erase(0, 1);
     size_t quotePos = s.find('\"');
     if (quotePos != string::npos) s = s.substr(0, quotePos);
     size_t commaPos = s.find(',');
     if (commaPos != string::npos) s = s.substr(0, commaPos);
-
     return s;
+}
+
+string Process::GetRegString(HKEY hKey, const char* valueName) {
+    char buffer[1024];
+    DWORD size = sizeof(buffer);
+    DWORD type;
+    if (RegQueryValueExA(hKey, valueName, NULL, &type, (LPBYTE)buffer, &size) == ERROR_SUCCESS) {
+        if (type == REG_SZ || type == REG_EXPAND_SZ) return string(buffer);
+    }
+    return "";
 }
 
 double Process::GetProcessMemory(DWORD pid) {
@@ -53,11 +65,54 @@ double Process::GetProcessMemory(DWORD pid) {
     return 0.0;
 }
 
-// --- SYSTEM ACTIONS ---
+void Process::ScanRegistryKey(HKEY hRoot, const char* subKey) {
+    HKEY hUninstall;
+    if (RegOpenKeyExA(hRoot, subKey, 0, KEY_READ, &hUninstall) != ERROR_SUCCESS) return;
+    char keyName[256];
+    DWORD index = 0;
+    DWORD keyNameLen = 256;
+    while (RegEnumKeyExA(hUninstall, index, keyName, &keyNameLen, NULL, NULL, NULL, NULL) == ERROR_SUCCESS) {
+        HKEY hApp;
+        if (RegOpenKeyExA(hUninstall, keyName, 0, KEY_READ, &hApp) == ERROR_SUCCESS) {
+            string name = GetRegString(hApp, "DisplayName");
+            string iconPath = GetRegString(hApp, "DisplayIcon");
+            if (iconPath.empty()) iconPath = GetRegString(hApp, "InstallLocation");
+            if (!name.empty() && !iconPath.empty()) {
+                string exePath = CleanPath(iconPath);
+                if (ToLower(exePath).find(".exe") != string::npos) {
+                    m_installedApps.push_back({ name, exePath });
+                }
+            }
+            RegCloseKey(hApp);
+        }
+        keyNameLen = 256; index++;
+    }
+    RegCloseKey(hUninstall);
+}
 
-bool Process::StartProcess(const string& path) {
-    // Đã đổi tên hàm cho khớp
-    HINSTANCE res = ShellExecuteA(NULL, "open", path.c_str(), NULL, NULL, SW_SHOWNORMAL);
+void Process::LoadInstalledApps() {
+    m_installedApps.clear();
+    ScanRegistryKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    ScanRegistryKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    ScanRegistryKey(HKEY_CURRENT_USER, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    m_isListLoaded = true;
+}
+
+bool Process::StartProcess(const string& nameOrPath) {
+    if (nameOrPath.empty()) return false;
+    string input = ToLower(nameOrPath);
+    if (input.find(":\\") != string::npos) {
+        HINSTANCE res = ShellExecuteA(NULL, "open", nameOrPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        return ((intptr_t)res > 32);
+    }
+    if (!m_isListLoaded) LoadInstalledApps();
+    for (const auto& app : m_installedApps) {
+        if (ToLower(app.name).find(input) != string::npos || ToLower(app.path).find(input) != string::npos) {
+            HINSTANCE res = ShellExecuteA(NULL, "open", app.path.c_str(), NULL, NULL, SW_SHOWNORMAL);
+            if ((intptr_t)res > 32) return true;
+        }
+    }
+    HINSTANCE res = ShellExecuteA(NULL, "open", nameOrPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
     return ((intptr_t)res > 32);
 }
 
@@ -65,58 +120,41 @@ string Process::StopProcess(const string& nameOrPid) {
     if (IsNumeric(nameOrPid)) {
         DWORD pid = stoul(nameOrPid);
         HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-        if (hProcess && TerminateProcess(hProcess, 1)) {
-            CloseHandle(hProcess);
-            return "Da diet PID " + nameOrPid;
-        }
-        return "Loi: Khong diet duoc PID " + nameOrPid;
+        if (hProcess && TerminateProcess(hProcess, 1)) { CloseHandle(hProcess); return "Killed PID " + nameOrPid; }
+        return "Err: Cannot kill PID " + nameOrPid;
     }
-
-    // Kill by Name
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnap == INVALID_HANDLE_VALUE) return "Loi Snapshot";
+    if (hSnap == INVALID_HANDLE_VALUE) return "Err Snapshot";
 
-    PROCESSENTRY32 pe32;
-    pe32.dwSize = sizeof(PROCESSENTRY32);
+    PROCESSENTRY32W pe32; pe32.dwSize = sizeof(PROCESSENTRY32W); // DUNG W
     int count = 0;
     string target = ToLower(nameOrPid);
 
-    if (Process32First(hSnap, &pe32)) {
+    if (Process32FirstW(hSnap, &pe32)) {
         do {
-            // SỬA LỖI C2440 TẠI ĐÂY: Dùng hàm ConvertToString
             string exeName = ConvertToString(pe32.szExeFile);
-            string current = ToLower(exeName);
-
-            if (current == target || current == target + ".exe") {
+            if (ToLower(exeName) == target || ToLower(exeName) == target + ".exe") {
                 HANDLE hProc = OpenProcess(PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
                 if (hProc) { TerminateProcess(hProc, 1); CloseHandle(hProc); count++; }
             }
-        } while (Process32Next(hSnap, &pe32));
+        } while (Process32NextW(hSnap, &pe32));
     }
     CloseHandle(hSnap);
-    return count > 0 ? "Da diet " + to_string(count) : "Khong tim thay";
+    return count > 0 ? "Killed " + to_string(count) : "Not found";
 }
 
 string Process::ListProcesses() {
     stringstream ss;
-    ss << "PID\tRAM(MB)\tName\n";
-
+    ss << "PID\tRAM(MB)\tThreads\tName\n";
     HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hSnap == INVALID_HANDLE_VALUE) return "Loi Snapshot";
-
-    PROCESSENTRY32 pe32;
-    pe32.dwSize = sizeof(PROCESSENTRY32);
-
-    if (Process32First(hSnap, &pe32)) {
+    if (hSnap == INVALID_HANDLE_VALUE) return "Err Snapshot";
+    PROCESSENTRY32W pe32; pe32.dwSize = sizeof(PROCESSENTRY32W); // DUNG W
+    if (Process32FirstW(hSnap, &pe32)) {
         do {
-            // SỬA LỖI C2440 TẠI ĐÂY NỮA
             string exeName = ConvertToString(pe32.szExeFile);
             double ram = GetProcessMemory(pe32.th32ProcessID);
-
-            ss << pe32.th32ProcessID << "\t"
-                << fixed << setprecision(1) << ram << "\t"
-                << exeName << "\n";
-        } while (Process32Next(hSnap, &pe32));
+            ss << pe32.th32ProcessID << "\t" << fixed << setprecision(1) << ram << "\t" << pe32.cntThreads << "\t" << exeName << "\n";
+        } while (Process32NextW(hSnap, &pe32));
     }
     CloseHandle(hSnap);
     return ss.str();
