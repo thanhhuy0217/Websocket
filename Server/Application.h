@@ -1,57 +1,26 @@
 #pragma once
-#define NOMINMAX
-#include <Windows.h>
-#include <shellapi.h>
-#include <tlhelp32.h>
-
-#include <string>
+#include "Process.h"
 #include <vector>
-#include <iostream>
-#include <algorithm>
-#include <cctype>
+#include <unordered_set>
 
-#include "Process.h"   // để dùng m_process.StartProcess / StopProcess
-
-// struct mô tả 1 application (tương ứng với { name, exePath } bên Process.cpp)
-struct ApplicationInfo {
-    std::string name; // DisplayName trong Registry
-    std::string path; // đường dẫn file .exe
-};
-
-class Application {
+class Application : public Process {
 private:
-    // danh sách ứng dụng đã cài (load từ Registry)
-    std::vector<ApplicationInfo> g_applications;
+    std::vector<AppInfo> m_installedApps;
 
-    // dùng Process để Start / Stop
-    Process m_process;
-
-    // ===== helper nội bộ =====
-    std::string Trim(const std::string& s);
-    std::string ToLower(std::string s);
-    bool ExtractStringValueA(HKEY hKey, const char* valueName, std::string& out);
-    std::string ExtractExeFromDisplayIcon(const std::string& displayIcon);
-    bool IsValidExePath(const std::string& path);
-
-    void EnumerateUninstallRoot(HKEY hRoot,
-        const char* subkeyRoot,
-        const char* rootPrefix);
-
-    std::string NormalizePath(const std::string& path);
-    bool GetProcessImagePath(DWORD pid, std::string& outPath);
-    bool HasProcessWithExe(const std::string& exePath);
+    void EnumerateUninstallRoot(HKEY hRoot, const char* subkeyRoot);
+    std::string GetRegString(HKEY hKey, const char* valueName);
+    std::unordered_set<std::string> BuildRunningExeSet();
 
 public:
-    // đọc registry, build lại g_applications
+    Application();
+
     void LoadInstalledApplications();
+    std::vector<std::pair<AppInfo, bool>> ListApplicationsWithStatus();
+    void PrintApplicationsWithStatus(size_t maxShow = 50);
 
-    // trả về vector<pair<ApplicationInfo, bool>>
-    // bool = true nếu app đó đang có process chạy
-    std::vector<std::pair<ApplicationInfo, bool>> ListApplicationsWithStatus();
+    // Tìm tên trong Registry rồi chạy
+    bool StartApplication(const std::string& nameOrPath);
 
-    // start application (zoom, zoom.exe, notepad, full path, ...)
-    bool StartApplication(const std::string& pathOrName);
-
-    // stop application (tên exe hoặc PID)
+    // Dừng ứng dụng
     bool StopApplication(const std::string& nameOrPid);
 };

@@ -357,7 +357,7 @@ public:
 
                     ws_.write(net::buffer(msg));
                 }
-                }
+            }
 
                 // 6.2. Start Application
                 // Lệnh: "start-app <ten app hoac exe/path>"
@@ -380,7 +380,7 @@ public:
                 {
                     ws_.write(net::buffer("Server: Khong the mo ung dung: " + input));
                 }
-                }
+            }
 
                 // 6.3. Stop Application
                 // Lệnh: "stop-app <ten exe hoac PID>"
