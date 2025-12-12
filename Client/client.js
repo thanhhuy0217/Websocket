@@ -428,7 +428,7 @@ function restoreHistoryItem(type, url) {
     }
 }
 
-/* --- WEBCAM LOGIC (UPDATED: NO STOP) --- */
+/* --- WEBCAM LOGIC --- */
 function toggleWebcam() {
     const btn = document.getElementById("btn-record");
     
@@ -464,7 +464,7 @@ function toggleWebcam() {
             showToast("Timeout: No video from server", "error"); 
             resetWebcamUI(); 
         }
-    }, 15000);
+    }, 18000);
 }
 
 function updateBtnText(sec) {
@@ -602,4 +602,14 @@ function confirmPower(action) {
         ? "Are you sure you want to SHUTDOWN the remote computer?" 
         : "Are you sure you want to RESTART the remote computer?";
     if(confirm(msg)) sendCmd(action);
+}
+
+function enterDashboard() {
+    const overlay = document.getElementById('intro-overlay');
+    if(overlay) {
+        overlay.classList.add('hidden-fade');
+        setTimeout(() => {
+            overlay.style.display = 'none';
+        }, 500); // 500ms matches the CSS transition time
+    }
 }

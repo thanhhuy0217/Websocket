@@ -550,14 +550,12 @@ body {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-    /* [UPDATED] THEM .btn-danger-red:hover VAO DE CO HIEU UNG NAY LEN */
     .btn-gradient-blue:hover, .btn-gradient-red:hover, .btn-connect:hover, .btn-danger-red:hover {
         transform: translateY(-3px);
         opacity: 0.9;
         box-shadow: 0 6px 15px rgba(0,0,0,0.15);
     }
 
-/* CLICK EFFECTS (Nhung xuong va thu nho) */
 .btn-gradient-blue:active, .btn-connect:active {
     transform: translateY(0) scale(0.96);
     box-shadow: 0 2px 5px rgba(96, 165, 250, 0.2);
@@ -1161,4 +1159,70 @@ body {
         opacity: 0;
         transform: translateY(10px);
     }
+}
+
+/* [NEW] INTRO OVERLAY */
+#intro-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-gradient);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.intro-card {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(30px);
+    padding: 60px 80px;
+    border-radius: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.1);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    animation: fadeUp 0.8s ease;
+}
+
+.intro-logo {
+    width: 100px;
+    height: 100px;
+    background: linear-gradient(135deg, #60A5FA 0%, #C4B5FD 100%);
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    box-shadow: 0 10px 25px rgba(96, 165, 250, 0.4);
+    margin-bottom: 10px;
+}
+
+    .intro-logo i {
+        width: 50px;
+        height: 50px;
+    }
+
+.intro-card h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--text-main);
+    letter-spacing: -1px;
+}
+
+.intro-card p {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    margin-bottom: 20px;
+}
+
+.hidden-fade {
+    opacity: 0;
+    visibility: hidden;
 }
