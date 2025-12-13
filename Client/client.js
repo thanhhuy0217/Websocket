@@ -47,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function toggleScanView() {
     const mainView = document.getElementById('intro-main-view');
     const scanView = document.getElementById('intro-scan-view');
-    const headerArea = document.getElementById('intro-header-area'); // [NEW] Header Element
+    const headerArea = document.getElementById('intro-header-area'); // Header Element
     
     if(mainView.style.display === 'none') {
         // Back to Main: Hien lai Header, an Scan
@@ -222,9 +222,6 @@ function disconnectServer() {
     loadHistory(); 
 }
 
-/* --- MAIN LOGIC (GIỮ NGUYÊN) --- */
-// ... (Giữ nguyên code phía dưới) ...
-
 /* --- TABS --- */
 function switchTab(tabId, element) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -329,7 +326,7 @@ function connectToServer() {
 }
 
 function setConnectedState(isConnected) {
-    // [UPDATED] Toggle Header UI
+    // Toggle Header UI
     const areaDisconnected = document.getElementById("conn-area-disconnected");
     const areaConnected = document.getElementById("conn-area-connected");
     const ipLabel = document.getElementById("connected-ip-label");

@@ -1161,7 +1161,7 @@ body {
     }
 }
 
-/* [UPDATED] INTRO OVERLAY */
+/* INTRO OVERLAY */
 #intro-overlay {
     position: fixed;
     top: 0;
@@ -1186,16 +1186,14 @@ body {
     text-align: center;
     width: 550px;
     max-width: 90%;
-    /* [FIX] Fix chieu cao de khong bi tran */
     max-height: 95vh;
     animation: fadeUp 0.8s ease;
     display: flex;
     flex-direction: column;
     align-items: center;
-    transition: 0.3s ease; /* Them transition khi thay doi kich thuoc */
+    transition: 0.3s ease; 
 }
 
-/* Header se bi an di khi Scan */
 .intro-header {
     display: flex;
     flex-direction: column;
@@ -1235,7 +1233,6 @@ body {
     font-size: 1.1rem;
 }
 
-/* Utility class de an header khi scan */
 .hidden-none {
     display: none !important;
 }
@@ -1274,7 +1271,6 @@ body {
     outline: none;
 }
 
-/* Spacing cho nut */
 .action-buttons {
     display: flex;
     gap: 20px;
@@ -1428,9 +1424,8 @@ body {
     color: var(--text-muted);
 }
 
-/* [FIX] List scan cao hon vi da an header */
 .scan-results-list {
-    height: 350px; /* Tang chieu cao len vi da an Logo */
+    height: 350px; 
     overflow-y: auto;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
