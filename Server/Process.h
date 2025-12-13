@@ -8,6 +8,8 @@
 #include <iostream>
 #include <sstream>
 #include <iomanip>
+#include <shlobj.h>  // Cho Start Menu search
+#include <shlwapi.h> // Cho thao tác path
 
 // Định nghĩa struct dùng chung
 struct AppInfo {
@@ -17,22 +19,27 @@ struct AppInfo {
 
 class Process {
 protected:
-    // Dữ liệu dùng chung (Protected để Application kế thừa dùng được)
+    // Dữ liệu dùng chung
     std::vector<AppInfo> m_installedApps;
     bool m_isListLoaded = false;
 
-    // Các hàm nội bộ
+    // --- Các hàm nội bộ (Private Helpers) ---
     void ScanRegistryKey(HKEY hRoot, const char* subKey);
     std::string GetRegString(HKEY hKey, const char* valueName);
     double GetProcessMemory(DWORD pid);
 
+    // Helper tìm kiếm file đệ quy (cho TH3)
+    std::string FindFileRecursive(std::string directory, std::string fileToFind);
+    // Helper quét Start Menu (cho TH3)
+    std::string FindAppInStartMenu(std::string appName);
+
 public:
     Process();
 
-    // Load danh sách App (Application sẽ gọi hàm này)
+    // Load danh sách App
     void LoadInstalledApps();
 
-    // Start App: Tìm trong Registry trước, không thấy thì chạy lệnh
+    // Start App: Hệ thống -> Registry -> Start Menu
     bool StartProcess(const std::string& nameOrPath);
 
     // Stop & List
