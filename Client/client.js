@@ -20,17 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     loadHistory();
 
-    const savedIP = localStorage.getItem("auralink_last_ip");
-    if (savedIP) {
-        document.getElementById("ipInput").value = savedIP;
-        document.getElementById("intro-ip-input").value = savedIP;
-        
-        // Auto-fill subnet from saved IP
-        const parts = savedIP.split('.');
-        if(parts.length === 4) {
-            parts.pop();
-            document.getElementById("scan-subnet").value = parts.join('.');
-        }
+    const savedClientIP = localStorage.getItem("auralink_client_ip");
+    if (savedClientIP) {
+        document.getElementById("intro-ip-input").value = savedClientIP;
     }
 
     const defaultNav = document.querySelector('.nav-item.active');
@@ -47,16 +39,16 @@ document.addEventListener('DOMContentLoaded', () => {
 function toggleScanView() {
     const mainView = document.getElementById('intro-main-view');
     const scanView = document.getElementById('intro-scan-view');
-    const headerArea = document.getElementById('intro-header-area'); // Header Element
+    const headerArea = document.getElementById('intro-header-area'); 
     
     if(mainView.style.display === 'none') {
-        // Back to Main: Hien lai Header, an Scan
+        // Back to Main
         headerArea.classList.remove('hidden-none');
         mainView.style.display = 'block';
         scanView.style.display = 'none';
         isScanning = false; 
     } else {
-        // Go to Scan: An Header, hien Scan
+        // Go to Scan
         headerArea.classList.add('hidden-none');
         mainView.style.display = 'none';
         scanView.style.display = 'flex';
@@ -77,14 +69,8 @@ function loadHistory() {
                 chip.className = "ip-chip";
                 chip.innerHTML = `<i data-lucide="history"></i> ${ip}`;
                 chip.onclick = () => {
-                    document.getElementById("intro-ip-input").value = ip;
-                    // Auto fill subnet if clicked
-                    const parts = ip.split('.');
-                    if(parts.length === 4) {
-                        parts.pop();
-                        document.getElementById("scan-subnet").value = parts.join('.');
-                    }
-                    connectFromIntro();
+                   // Connect directly from history
+                   connectToTarget(ip);
                 };
                 container.appendChild(chip);
             });
@@ -107,12 +93,8 @@ function saveToHistory(ip) {
     localStorage.setItem("auralink_history", JSON.stringify(history));
 }
 
-function connectFromIntro() {
-    const ip = document.getElementById("intro-ip-input").value.trim();
-    if (!ip) { alert("Please enter IP Address"); return; }
-    
-    document.getElementById("ipInput").value = ip; 
-    
+function connectToTarget(ip) {
+    document.getElementById("ipInput").value = ip;
     const overlay = document.getElementById('intro-overlay');
     overlay.classList.add('hidden-fade');
     setTimeout(() => {
@@ -121,19 +103,50 @@ function connectFromIntro() {
     }, 500);
 }
 
+// === NEW: Handle Scan from Client IP ===
+function handleIntroScan() {
+    const clientIP = document.getElementById("intro-ip-input").value.trim();
+    if (!clientIP) {
+        alert("Please enter your Client IP first.");
+        return;
+    }
+    
+    // Save client IP for convenience next time
+    localStorage.setItem("auralink_client_ip", clientIP);
+
+    // Verify IP format roughly
+    const parts = clientIP.split('.');
+    if (parts.length !== 4) {
+        alert("Invalid IP format. Example: 192.168.1.15");
+        return;
+    }
+
+    // Extract Subnet (First 3 parts)
+    parts.pop(); // Remove the 4th octet
+    const subnet = parts.join('.'); // "192.168.1"
+
+    // Setup Scan View
+    document.getElementById('scan-subnet').value = subnet;
+    
+    toggleScanView();
+    startNetworkScan();
+}
+
 function startNetworkScan() {
     if (isScanning) return;
     
     const subnet = document.getElementById('scan-subnet').value.trim();
-    if (!subnet) return alert("Enter Subnet (e.g. 192.168.1)");
+    if (!subnet) return alert("Subnet error: Please go back and enter Client IP again.");
 
     isScanning = true;
-    const btn = document.getElementById('btn-start-scan');
-    btn.innerText = "Scanning...";
-    btn.disabled = true;
+    const btnRescan = document.getElementById('btn-rescan');
+    if(btnRescan) {
+        btnRescan.innerText = "Scanning...";
+        btnRescan.disabled = true;
+    }
 
     const list = document.getElementById('scan-results');
-    list.innerHTML = "";
+    list.innerHTML = ""; // Clear old results
     
     const progressBar = document.getElementById('scan-progress');
     const statusText = document.getElementById('scan-status-text');
@@ -147,66 +160,81 @@ function startNetworkScan() {
             if(!isScanning) return;
             
             const targetIP = `${subnet}.${i}`;
-            const ws = new WebSocket(`ws://${targetIP}:8080`);
+            // FIX: Add timestamp to avoid browser caching closed connections
+            // This forces a fresh connection attempt
+            const ws = new WebSocket(`ws://${targetIP}:8080/?t=${Date.now()}`);
             
+            // FIX: Increased timeout to 2000ms for better reliability on Rescan
             const timer = setTimeout(() => {
-                if(ws.readyState !== WebSocket.OPEN) ws.close();
-            }, 1500);
+                if(ws.readyState !== WebSocket.OPEN) {
+                    ws.close();
+                }
+            }, 2000); 
 
             ws.onopen = () => {
                 clearTimeout(timer);
-                ws.close(); 
+                // Important: Update UI BEFORE closing to ensure user sees it
                 foundCount++;
                 
                 const item = document.createElement("div");
                 item.className = "scan-item";
                 item.innerHTML = `
                     <div style="display:flex; align-items:center; gap:10px;">
-                        <i data-lucide="monitor" style="width:20px; color:#64748b"></i>
+                        <div class="scan-icon-box"><i data-lucide="monitor"></i></div>
                         <div style="display:flex; flex-direction:column;">
                             <strong>${targetIP}</strong>
-                            <span style="font-size:0.75rem; color:#94a3b8">AuraLink Server</span>
+                            <span style="font-size:0.75rem; color:#34d399">Online - Ready</span>
                         </div>
                     </div>
                     <button class="btn-gradient-blue" style="padding: 6px 15px; font-size:0.8rem; border-radius:10px;">Connect</button>
                 `;
                 item.onclick = () => {
-                    document.getElementById("intro-ip-input").value = targetIP;
                     isScanning = false;
-                    toggleScanView(); 
+                    // Close this probing socket if it's still open (though onopen closes it below)
+                    if(ws.readyState === WebSocket.OPEN) ws.close();
+                    connectToTarget(targetIP);
                 };
                 list.appendChild(item);
                 if(typeof lucide !== 'undefined') lucide.createIcons();
+
+                // Close the probe connection immediately
+                ws.close(); 
             };
 
-            ws.onerror = () => { /* Ignore */ };
+            ws.onerror = () => { /* Ignore errors */ };
+            
             ws.onclose = () => {
                 scannedCount++;
                 const pct = Math.floor((scannedCount / total) * 100);
                 progressBar.style.width = pct + "%";
-                statusText.innerText = `Scanning ${subnet}.x ... ${pct}% (${foundCount} found)`;
+                statusText.innerText = `Scanning... ${pct}%`;
 
                 if (scannedCount >= total) {
                     isScanning = false;
-                    btn.innerText = "Scan Again";
-                    btn.disabled = false;
-                    statusText.innerText = `Scan Complete. Found ${foundCount} devices.`;
+                    if(btnRescan) {
+                        btnRescan.innerText = "Scan Again";
+                        btnRescan.disabled = false;
+                    }
+                    statusText.innerText = `Scan Complete. Found ${foundCount} active servers.`;
                     if(foundCount === 0) list.innerHTML = `
                         <div class="scan-placeholder">
                             <i data-lucide="search-x" style="width:40px; height:40px; margin-bottom:10px; opacity:0.5"></i>
-                            No devices found on ${subnet}.x <br>
+                            No servers found on ${subnet}.x <br>
                             Ensure Server is running on port 8080
                         </div>`;
                     if(typeof lucide !== 'undefined') lucide.createIcons();
                 }
             };
 
-        }, i * 30); 
+        }, i * 20); // Interval
     }
 }
 
 function disconnectServer() {
     if (websocket) {
+        // Ensure clean close
+        websocket.onclose = null; 
+        websocket.onerror = null;
         websocket.close();
         websocket = null;
     }

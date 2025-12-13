@@ -9,6 +9,8 @@
     --grad-blue: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
     --grad-red: linear-gradient(135deg, #FF512F 0%, #DD2476 100%);
     --grad-hybrid: linear-gradient(135deg, #60A5FA 0%, #F472B6 100%);
+    /* New Pastel Gradient for Scan Button */
+    --grad-pastel: linear-gradient(135deg, #818cf8 0%, #f472b6 100%);
     --shadow-soft: 0 10px 40px rgba(168, 170, 179, 0.15);
     --font-main: 'Poppins', sans-serif;
     --radius-card: 24px;
@@ -665,6 +667,34 @@ body {
         min-width: 200px;
     }
 
+/* NEW PASTEL GRADIENT BUTTON */
+.btn-gradient-pastel {
+    background: var(--grad-pastel);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 50px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 5px 15px rgba(129, 140, 248, 0.3);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+    .btn-gradient-pastel:hover {
+        transform: translateY(-3px);
+        opacity: 0.95;
+        box-shadow: 0 8px 20px rgba(129, 140, 248, 0.25);
+    }
+
+    .btn-gradient-pastel:active {
+        transform: translateY(0) scale(0.96);
+        box-shadow: 0 2px 5px rgba(129, 140, 248, 0.2);
+    }
+
 /* TABLE */
 .table-wrapper {
     flex: 1;
@@ -973,6 +1003,10 @@ body {
     margin-top: 10px !important;
 }
 
+.mt-10 {
+    margin-top: 10px !important;
+}
+
 /* CONTROLS */
 .controls-area {
     display: flex;
@@ -1179,7 +1213,7 @@ body {
 .intro-card {
     background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(40px);
-    padding: 60px 70px;
+    padding: 40px 60px; /* Reduced padding for neatness */
     border-radius: 40px;
     border: 1px solid rgba(255, 255, 255, 0.9);
     box-shadow: 0 40px 80px rgba(0,0,0,0.15);
@@ -1187,11 +1221,13 @@ body {
     width: 550px;
     max-width: 90%;
     max-height: 95vh;
+    /* REMOVED overflow-y: auto to hide main scrollbar */
+    overflow: hidden;
     animation: fadeUp 0.8s ease;
     display: flex;
     flex-direction: column;
     align-items: center;
-    transition: 0.3s ease; 
+    transition: 0.3s ease;
 }
 
 .intro-header {
@@ -1199,7 +1235,7 @@ body {
     flex-direction: column;
     align-items: center;
     gap: 20px;
-    margin-bottom: 40px;
+    margin-bottom: 30px;
     transition: 0.3s;
 }
 
@@ -1238,6 +1274,19 @@ body {
 }
 
 /* Input group */
+.input-label-wrapper {
+    width: 100%;
+    text-align: left;
+    margin-bottom: 8px;
+    padding-left: 5px;
+}
+
+    .input-label-wrapper label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--text-main);
+    }
+
 .input-group-large {
     background: white;
     border: 1px solid #e2e8f0;
@@ -1273,13 +1322,15 @@ body {
 
 .action-buttons {
     display: flex;
-    gap: 20px;
+    flex-direction: column;
+    gap: 15px;
     width: 100%;
-    margin-top: 40px;
+    margin-top: 30px;
+    align-items: center;
 }
 
 .large-btn {
-    flex: 1;
+    width: 100%;
     padding: 16px;
     font-size: 1.1rem;
     border-radius: 20px;
@@ -1287,14 +1338,10 @@ body {
     cursor: pointer;
     border: none;
     transition: 0.2s;
-}
-
-.icon-only {
-    flex: 0 0 auto;
-    width: 60px;
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 10px;
 }
 
 /* History Section */
@@ -1318,6 +1365,7 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+    /* Maintain specific internal scroll */
     max-height: 100px;
     overflow-y: auto;
     padding-right: 5px;
@@ -1365,12 +1413,13 @@ body {
     padding-top: 10px;
 }
 
+/* UPDATED MARGIN HERE */
 .scan-header-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
     width: 100%;
-    margin-bottom: 10px;
+    margin-bottom: 20px; /* Increased from 5px */
 }
 
     .scan-header-bar h3 {
@@ -1381,22 +1430,7 @@ body {
         gap: 10px;
     }
 
-.scan-controls {
-    display: flex;
-    gap: 15px;
-    width: 100%;
-    margin-bottom: 5px;
-}
-
-.input-group-large.compact {
-    padding: 12px 20px;
-}
-
-.prefix, .suffix {
-    color: var(--text-muted);
-    font-weight: 500;
-    font-size: 1rem;
-}
+/* REMOVED .scan-info-bar class */
 
 .scan-progress-area {
     width: 100%;
@@ -1425,13 +1459,14 @@ body {
 }
 
 .scan-results-list {
-    height: 350px; 
+    max-height: 250px;
     overflow-y: auto;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
     padding: 10px;
     background: #f8fafc;
     text-align: left;
+    min-height: 150px;
 }
 
 .scan-item {
@@ -1459,20 +1494,28 @@ body {
         font-size: 1rem;
     }
 
-    .scan-item .badge {
-        background: #dcfce7;
-        color: #166534;
-        font-size: 0.75rem;
-        padding: 4px 10px;
-        border-radius: 20px;
-        font-weight: 700;
-    }
+.scan-icon-box {
+    width: 36px;
+    height: 36px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+}
 
 .scan-placeholder {
     text-align: center;
-    padding: 60px 20px;
+    padding: 40px 20px;
     color: #cbd5e1;
     font-size: 0.95rem;
+}
+
+.scan-footer-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 10px;
 }
 
 .hidden-fade {

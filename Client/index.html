@@ -22,17 +22,17 @@
             </div>
 
             <div id="intro-main-view">
+                <div class="input-label-wrapper">
+                    <label for="intro-ip-input">Enter Your Client IP:</label>
+                </div>
                 <div class="input-group-large">
-                    <i data-lucide="network" class="input-icon"></i>
-                    <input type="text" id="intro-ip-input" placeholder="Enter Server IP">
+                    <i data-lucide="laptop" class="input-icon"></i>
+                    <input type="text" id="intro-ip-input" placeholder="e.g. 192.168.1.15">
                 </div>
 
                 <div class="action-buttons">
-                    <button class="btn-gradient-blue large-btn" onclick="connectFromIntro()">
-                        Connect Now <i data-lucide="arrow-right"></i>
-                    </button>
-                    <button class="btn-secondary large-btn icon-only" onclick="toggleScanView()" title="Scan Network">
-                        <i data-lucide="radar"></i>
+                    <button class="btn-gradient-pastel large-btn" onclick="handleIntroScan()">
+                        <i data-lucide="radar"></i> Scan Network
                     </button>
                 </div>
 
@@ -50,24 +50,21 @@
                     <button class="btn-icon-small" onclick="toggleScanView()"><i data-lucide="x"></i></button>
                 </div>
 
-                <div class="scan-controls">
-                    <div class="input-group-large compact">
-                        <span class="prefix">Subnet:</span>
-                        <input type="text" id="scan-subnet" placeholder="e.g. 192.168.1">
-                        <span class="suffix">.x</span>
-                    </div>
-                    <button class="btn-gradient-hybrid" id="btn-start-scan" onclick="startNetworkScan()">
-                        Scan
-                    </button>
-                </div>
+                <input type="hidden" id="scan-subnet">
 
                 <div class="scan-progress-area">
                     <div class="progress-bar-bg"><div class="progress-bar-fill" id="scan-progress" style="width: 0%"></div></div>
-                    <span id="scan-status-text">Enter subnet to scan</span>
+                    <span id="scan-status-text">Initializing...</span>
                 </div>
 
                 <div class="scan-results-list" id="scan-results">
-                    <div class="scan-placeholder">Online devices will appear here</div>
+                    <div class="scan-placeholder">Searching for active servers...</div>
+                </div>
+
+                <div class="scan-footer-actions">
+                    <button class="btn-gradient-hybrid" id="btn-rescan" onclick="startNetworkScan()" disabled>
+                        Scan Again
+                    </button>
                 </div>
             </div>
         </div>
