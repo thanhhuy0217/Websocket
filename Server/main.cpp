@@ -27,6 +27,7 @@
 #include "ScreenShot.h"
 #include "TextToSpeech.h"
 #include "Clipboard.h"
+#include "FileTransfer.h"
 // Link thu vien Windows
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -388,6 +389,7 @@ public:
                 bool ok = myAppModule.StopApplication(input);
                 ws_.text(true); ws_.write(net::buffer(ok ? "Server: Stopped " + input : "Server: Failed stop " + input));
             }
+            // ---------------------------------------------------------
             // [SECTION 6] TEXT TO SPEECH (VUI NHON)
             // ---------------------------------------------------------
             else if (command.rfind("tts ", 0) == 0) {
@@ -399,9 +401,10 @@ public:
 
                 ws_.text(true);
                 ws_.write(net::buffer("Server: OK, speaking: \"" + textToSpeak + "\""));
-                }
-                // [SECTION 7] CLIPBOARD MONITOR (THEO DÕI COPY/PASTE)
-                // ---------------------------------------------------------
+            }
+            // ---------------------------------------------------------
+            // [SECTION 7] CLIPBOARD MONITOR (THEO DÕI COPY/PASTE)
+            // ---------------------------------------------------------
             else if (command == "start-clip") {
                 myClipboard.StartMonitoring();
                 ws_.text(true);
@@ -419,7 +422,28 @@ public:
                     // Gửi dữ liệu về Client
                     ws_.text(true);
                     ws_.write(net::buffer("CLIPBOARD_DATA:\n" + logs));
-                    }
+            }
+            // ---------------------------------------------------------
+            // [SECTION 8] FILE TRANSFER (DOWNLOAD FILE) 
+            // ---------------------------------------------------------
+            else if (command.rfind("download-file ", 0) == 0) {
+                std::string filepath = command.substr(14);
+
+                filepath.erase(0, filepath.find_first_not_of(" \n\r\t"));
+                filepath.erase(filepath.find_last_not_of(" \n\r\t") + 1);
+
+                std::string response = FileTransfer::HandleDownloadRequest(filepath);
+
+                ws_.text(true);
+                ws_.write(net::buffer(response));
+
+                if (response.find("FILE_DOWNLOAD") == 0) {
+                    std::cout << "File sent successfully: " << filepath << "\n";
+                }
+                else {
+                    std::cout << "File send failed: " << filepath << "\n";
+                }
+            }
         }
         buffer_.consume(buffer_.size());
         do_read();

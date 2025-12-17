@@ -1465,7 +1465,7 @@ body {
 }
 
 .scan-results-list {
-    max-height: 250px;
+    max-height: 370px;
     overflow-y: auto;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
@@ -1604,4 +1604,60 @@ body {
 textarea.glass-input {
     resize: none;
     font-family: inherit;
+}
+
+/* --- FILE TRANSFER STYLES --- */
+.file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: white;
+    padding: 12px 20px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    border: 1px solid #e2e8f0;
+    transition: 0.2s;
+}
+
+    .file-item:hover {
+        border-color: #60a5fa;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(96, 165, 250, 0.1);
+    }
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.file-icon-box {
+    width: 36px;
+    height: 36px;
+    background: #eff6ff;
+    color: #3b82f6;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-name {
+    font-weight: 600;
+    color: var(--text-main);
+    font-size: 0.95rem;
+}
+
+.file-path {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.badge-success {
+    background: #dcfce7;
+    color: #166534;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
 }

