@@ -50,15 +50,30 @@ string Process::CleanPath(const string& rawPath) {
     return s;
 }
 
+// Thay thế hàm GetRegString cũ trong Process.cpp bằng hàm này :
 string Process::GetRegString(HKEY hKey, const char* valueName) {
-    char buffer[1024];
+    // 1. Chuyển tên Value (ví dụ "DisplayName") từ char* sang WCHAR* để dùng API Unicode
+    int len = MultiByteToWideChar(CP_ACP, 0, valueName, -1, NULL, 0);
+    if (len <= 0) return "";
+    wstring wValueName(len, 0);
+    MultiByteToWideChar(CP_ACP, 0, valueName, -1, &wValueName[0], len);
+
+    // 2. Dùng RegQueryValueExW (Phiên bản Unicode) thay vì A
+    WCHAR buffer[4096]; // Tăng buffer lên 4096 để tránh bị tràn với các app tên dài
     DWORD size = sizeof(buffer);
     DWORD type;
-    if (RegQueryValueExA(hKey, valueName, NULL, &type, (LPBYTE)buffer, &size) == ERROR_SUCCESS) {
-        if (type == REG_SZ || type == REG_EXPAND_SZ) return string(buffer);
+
+    // Lưu ý: wValueName.c_str() cắt bỏ ký tự null thừa ở cuối nếu có
+    if (RegQueryValueExW(hKey, wValueName.data(), NULL, &type, (LPBYTE)buffer, &size) == ERROR_SUCCESS) {
+        // Chỉ lấy dữ liệu dạng chuỗi
+        if (type == REG_SZ || type == REG_EXPAND_SZ) {
+            // 3. Quan trọng: Chuyển từ WCHAR (Unicode) sang UTF-8 bằng hàm có sẵn của bạn
+            return ConvertToString(buffer);
+        }
     }
     return "";
 }
+
 
 double Process::GetProcessMemory(DWORD pid) {
     PROCESS_MEMORY_COUNTERS pmc;
