@@ -2,7 +2,7 @@
 let websocket = null;
 let intervalUptime = null;
 let intervalSensors = null;
-let intervalPing = null; /
+let intervalPing = null; 
 let systemStartTime = 0; 
 let lastScreenshotUrl = null; 
 let lastWebcamUrl = null;
