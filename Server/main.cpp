@@ -414,14 +414,14 @@ public:
                 myClipboard.StopMonitoring();
                 ws_.text(true);
                 ws_.write(net::buffer("Server: Clipboard Monitor STOPPED."));
-                }
+            }
             else if (command == "get-clip") {
-                    std::string logs = myClipboard.GetLogs();
-                    if (logs.empty()) logs = "[No clipboard data recorded]";
+                std::string logs = myClipboard.GetLogs();
+                if (logs.empty()) logs = "[No clipboard data recorded]";
 
-                    // Gửi dữ liệu về Client
-                    ws_.text(true);
-                    ws_.write(net::buffer("CLIPBOARD_DATA:\n" + logs));
+                // Gửi dữ liệu về Client
+                ws_.text(true);
+                ws_.write(net::buffer("CLIPBOARD_DATA:\n" + logs));
             }
             // ---------------------------------------------------------
             // [SECTION 8] FILE TRANSFER (DOWNLOAD FILE) 
@@ -443,6 +443,19 @@ public:
                 else {
                     std::cout << "File send failed: " << filepath << "\n";
                 }
+            }
+            else if (command.rfind("ls ", 0) == 0) {
+                // Lệnh: ls <đường dẫn> (Ví dụ: ls D:\Data)
+                std::string path = command.substr(3);
+                std::string result = FileTransfer::ListDirectory(path);
+                ws_.text(true);
+                ws_.write(net::buffer(result));
+            }
+            else if (command == "ls") {
+                // Lệnh: ls (Mặc định lấy ổ C)
+                std::string result = FileTransfer::ListDirectory("C:\\");
+                ws_.text(true);
+                ws_.write(net::buffer(result));
             }
         }
         buffer_.consume(buffer_.size());

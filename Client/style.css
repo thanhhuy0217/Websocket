@@ -70,20 +70,20 @@ body {
     gap: 18px;
     width: 100%;
     align-items: center;
-    
     /* SỬA ĐOẠN NÀY: */
-    flex: 1;                 /* Chiếm hết không gian còn lại */
-    overflow-y: auto;        /* Cho phép cuộn dọc nếu dài quá */
-    overflow-x: hidden;      /* Ẩn cuộn ngang */
-    padding-bottom: 20px;    /* Thêm đệm dưới cùng */
-    
+    flex: 1; /* Chiếm hết không gian còn lại */
+    overflow-y: auto; /* Cho phép cuộn dọc nếu dài quá */
+    overflow-x: hidden; /* Ẩn cuộn ngang */
+    padding-bottom: 20px; /* Thêm đệm dưới cùng */
     /* Ẩn thanh cuộn cho đẹp (Webkit browsers like Chrome) */
-    scrollbar-width: none;  /* Firefox */
-    -ms-overflow-style: none;  /* IE/Edge */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
 }
-.nav-menu::-webkit-scrollbar {
+
+    .nav-menu::-webkit-scrollbar {
         display: none;
     }
+
 .nav-item {
     width: 48px;
     height: 48px;
@@ -1660,4 +1660,126 @@ textarea.glass-input {
     border-radius: 20px;
     font-size: 0.75rem;
     font-weight: 700;
+}
+
+/* Container danh sách file */
+.file-browser-container {
+    flex: 1;
+    overflow-y: auto;
+    margin-top: 15px;
+    border: 1px solid rgba(255,255,255,0.5);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.3);
+    padding: 10px;
+}
+
+/* Từng dòng item (Folder hoặc File) */
+.browser-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+    .browser-item:hover {
+        background: rgba(255,255,255,0.6);
+    }
+
+.browser-item-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.browser-icon {
+    width: 20px;
+    height: 20px;
+    color: #4A5568;
+}
+
+.browser-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.browser-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.btn-mini {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    background: #e2e8f0;
+    color: #475569;
+}
+
+    .btn-mini:hover {
+        background: #cbd5e1;
+    }
+
+.btn-download-mini {
+    background: #dbeafe;
+    color: #2563eb;
+}
+
+    .btn-download-mini:hover {
+        background: #bfdbfe;
+    }
+/* --- FILE SPLIT VIEW LAYOUT --- */
+.file-split-view {
+    display: grid;
+    grid-template-columns: 2fr 1.2fr; /* Bên trái rộng gấp đôi bên phải */
+    gap: 20px;
+    flex: 1;
+    overflow: hidden; /* Quan trọng để scroll hoạt động riêng biệt */
+    margin-top: 10px;
+}
+
+.file-browser-wrapper, .file-history-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Ghi đè lại class cũ để đảm bảo full chiều cao */
+.file-browser-container, .scan-results-list {
+    flex: 1;
+    overflow-y: auto;
+    margin-top: 0 !important; /* Xóa margin cũ */
+    height: 100%;
+    border-radius: 12px;
+}
+
+.file-browser-container {
+    background: rgba(255,255,255,0.4);
+    border: 1px solid rgba(255,255,255,0.5);
+}
+
+/* Tinh chỉnh item lịch sử để hiển thị đường dẫn */
+/* Tinh chỉnh item lịch sử để hiển thị đường dẫn FULL (Tự xuống dòng) */
+.file-path-source {
+    font-size: 0.7rem;
+    color: #64748b;
+    margin-top: 4px;
+    font-family: monospace;
+    /* --- CÁC DÒNG QUAN TRỌNG ĐỂ HIỆN FULL LINK --- */
+    white-space: normal; /* Cho phép xuống dòng */
+    word-break: break-all; /* Cắt ngang đường dẫn dài để xuống dòng */
+    overflow: visible; /* Hiển thị hết nội dung */
+    text-overflow: clip; /* Bỏ dấu ba chấm (...) */
+    max-width: 100%; /* Chiếm hết chiều rộng cho phép */
+    line-height: 1.2; /* Giãn dòng một chút cho dễ đọc */
 }
