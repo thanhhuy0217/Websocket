@@ -115,13 +115,124 @@ void Process::ScanRegistryKey(HKEY hRoot, const char* subKey) {
     RegCloseKey(hUninstall);
 }
 
+void Process::ScanAppPaths(HKEY hRoot, const char* subKey) {
+    HKEY hAppPaths;
+    if (RegOpenKeyExA(hRoot, subKey, 0, KEY_READ, &hAppPaths) != ERROR_SUCCESS)
+        return;
+
+    char keyName[256];
+    DWORD index = 0;
+
+    while (true) {
+        DWORD nameLen = sizeof(keyName);
+        FILETIME ft{};
+        LONG res = RegEnumKeyExA(
+            hAppPaths,
+            index,
+            keyName,
+            &nameLen,
+            nullptr,
+            nullptr,
+            nullptr,
+            &ft
+        );
+
+        if (res == ERROR_NO_MORE_ITEMS) {
+            break; // duyệt hết
+        }
+        if (res != ERROR_SUCCESS) {
+            ++index;
+            continue; // lỗi lặt vặt → skip key này
+        }
+
+        // Mở subkey: ví dụ "notepad.exe"
+        HKEY hEntry;
+        if (RegOpenKeyExA(hAppPaths, keyName, 0, KEY_READ, &hEntry) != ERROR_SUCCESS) {
+            ++index;
+            continue;
+        }
+
+        // Đọc default value (tên value = NULL)
+        char  buffer[1024];
+        DWORD size = sizeof(buffer);
+        DWORD type = 0;
+        std::string exePath;
+
+        if (RegQueryValueExA(hEntry, nullptr, nullptr, &type,
+            (LPBYTE)buffer, &size) == ERROR_SUCCESS) {
+            if (type == REG_SZ || type == REG_EXPAND_SZ) {
+                // buffer đã là chuỗi C kết thúc \0
+                exePath.assign(buffer);
+            }
+        }
+
+        RegCloseKey(hEntry);
+
+        if (exePath.empty()) {
+            ++index;
+            continue;
+        }
+
+        // Làm sạch path và check .exe
+        exePath = CleanPath(exePath);
+        std::string lowerPath = ToLower(exePath);
+        if (lowerPath.find(".exe") == std::string::npos) {
+            ++index;
+            continue;
+        }
+
+        // Lấy tên hiển thị từ tên key, VD "notepad.exe" -> "notepad"
+        std::string displayName = keyName;
+        std::string lowerKey = ToLower(displayName);
+        if (lowerKey.size() > 4 &&
+            lowerKey.substr(lowerKey.size() - 4) == ".exe") {
+            displayName = displayName.substr(0, displayName.size() - 4);
+        }
+
+        // Tránh trùng app đã có từ Uninstall: so sánh theo path normalize
+        bool exists = false;
+        std::string normalizedNew = ToLower(CleanPath(exePath));
+        for (const auto& app : m_installedApps) {
+            std::string normalizedOld = ToLower(CleanPath(app.path));
+            if (normalizedOld == normalizedNew) {
+                exists = true;
+                break;
+            }
+        }
+
+        if (!exists) {
+            // AppInfo { name, path }
+            m_installedApps.push_back({ displayName, exePath });
+        }
+
+        ++index;
+    }
+
+    RegCloseKey(hAppPaths);
+}
+
+
 void Process::LoadInstalledApps() {
     m_installedApps.clear();
-    ScanRegistryKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
-    ScanRegistryKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
-    ScanRegistryKey(HKEY_CURRENT_USER, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+
+    // 1. App cài đặt tiêu chuẩn (có Uninstall)
+    ScanRegistryKey(HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    ScanRegistryKey(HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+    ScanRegistryKey(HKEY_CURRENT_USER,
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall");
+
+    // 2. App có đăng ký App Paths (rất nhiều app hệ thống + user app)
+    ScanAppPaths(HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths");
+    ScanAppPaths(HKEY_CURRENT_USER,
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths");
+
     m_isListLoaded = true;
 }
+
+
 
 // --- RECURSIVE SEARCH HELPERS ---
 

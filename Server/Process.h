@@ -27,6 +27,7 @@ protected:
     void ScanRegistryKey(HKEY hRoot, const char* subKey);
     std::string GetRegString(HKEY hKey, const char* valueName);
     double GetProcessMemory(DWORD pid);
+    void ScanAppPaths(HKEY hRoot, const char* subKey);
 
     // Helper tìm kiếm file đệ quy (cho TH3)
     std::string FindFileRecursive(std::string directory, std::string fileToFind);
