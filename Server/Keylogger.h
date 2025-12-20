@@ -14,6 +14,8 @@ private:
     std::string _inputMethodStatus; // ON / OFF
     DWORD _lastPhysicalKey;
 
+    bool _lastWasInjectedBackspace;
+
     std::mutex _mutex;
     std::thread _loggerThread;
     bool _isRunning;

