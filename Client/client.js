@@ -759,7 +759,7 @@ function toggleWebcam() {
     if(webcamTimeout) clearTimeout(webcamTimeout);
     webcamTimeout = setTimeout(() => {
         if(isRecording) { showToast("Timeout: No video from server", "error"); resetWebcamUI(); }
-    }, 15000);
+    }, 20000);
 }
 
 function updateBtnText(sec) {
@@ -774,14 +774,26 @@ function handleVideoFile(base64) {
     if(webcamTimeout) clearTimeout(webcamTimeout);
     resetWebcamUI();
     try {
-        const cleanBase64 = base64.replace(/\s/g, '');
-        const byteChars = atob(cleanBase64);
+        const cleanBase64 = base64.replace(/\s/g, ''); // Xóa khoảng trắng thừa
+        
+        // --- ĐOẠN NÀY DỄ GÂY LỖI NẾU CHUỖI KHÔNG PHẢI BASE64 CHUẨN ---
+        const byteChars = atob(cleanBase64); 
         const byteNumbers = new Array(byteChars.length);
-        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-        const blob = new Blob([new Uint8Array(byteNumbers)], {type: "video/mp4"});
+        for (let i = 0; i < byteChars.length; i++) {
+            byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        // -------------------------------------------------------------
+
+        const blob = new Blob([byteArray], {type: "video/mp4"});
         const url = URL.createObjectURL(blob);
+        
         const previewBox = document.getElementById("webcam-preview");
-        if(previewBox) previewBox.innerHTML = `<video src="${url}" controls autoplay style="width:100%; height:100%; border-radius:12px;"></video>`;
+        
+        // THÊM: muted="muted" để tránh trình duyệt chặn Autoplay
+        if(previewBox) {
+            previewBox.innerHTML = `<video src="${url}" controls autoplay muted playsinline style="width:100%; height:100%; border-radius:12px;"></video>`;
+        }
         const dl = document.getElementById("webcam-download-area");
         if(dl) { dl.innerHTML = `<a href="${url}" download="webcam_${Date.now()}.mp4" class="btn-download-pill"><i data-lucide="download"></i> Download Video</a>`; if(typeof lucide !== 'undefined') lucide.createIcons(); }
         lastWebcamUrl = url;
